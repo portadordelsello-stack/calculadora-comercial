@@ -1,0 +1,5 @@
+{
+  "name": "ComerciCalc Pro",
+  "description": "Una calculadora comercial moderna diseñada para puntos de venta, con registro de ventas y exportación de datos CSV.",
+  "requestFramePermissions": []
+}
