@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { initializeApp, getApp, deleteApp } from "firebase/app";
+import { initializeApp, deleteApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail, updatePassword } from "firebase/auth";
-import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, deleteDoc, doc, setDoc, writeBatch, where, getDocs, getDoc, updateDoc } from "firebase/firestore";
+import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, deleteDoc, doc, setDoc, writeBatch, where, getDocs, updateDoc } from "firebase/firestore";
 import { Display } from './components/Display';
 import { CalculatorButton } from './components/CalculatorButton';
 import { Sale, Operator, PaymentMethod, User } from './types';
-import { Download, History, DollarSign, Trash2, ShoppingBag, User as UserIcon, Smartphone, Banknote, ArrowRightLeft, ShieldCheck, LogOut, ArrowLeft, LogIn, KeyRound, Users, CheckCircle2, AlertTriangle, UserPlus, X, Loader2, Pencil, Save, Mail, AlertCircle, Lock, Delete, CreditCard } from 'lucide-react';
+import { Download, History, DollarSign, Trash2, ShoppingBag, User as UserIcon, Banknote, ArrowRightLeft, ShieldCheck, LogOut, ArrowLeft, LogIn, KeyRound, Users, CheckCircle2, AlertTriangle, UserPlus, X, Loader2, Pencil, Save, Mail, AlertCircle, Lock, CreditCard } from 'lucide-react';
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
@@ -30,7 +30,8 @@ const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   
   // Login/Register Form State
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  // Removed setAuthMode to fix unused variable error. Default is 'login'.
+  const [authMode] = useState<'login' | 'register'>('login');
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [nameInput, setNameInput] = useState(''); // Only for register
