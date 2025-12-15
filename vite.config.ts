@@ -8,31 +8,21 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
+      includeAssets: ['favicon.ico', 'icon.svg'],
       manifest: {
         name: 'ComerciCalc Pro',
         short_name: 'ComerciCalc',
         description: 'Calculadora comercial y registro de ventas para puntos de venta.',
-        theme_color: '#34D399', // Requested Android color (Emerald 400)
-        background_color: '#0f172a', // App background (Slate 900)
+        theme_color: '#34D399',
+        background_color: '#0f172a',
         display: 'standalone',
         orientation: 'portrait',
         start_url: '/',
         icons: [
           {
-            src: 'pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png'
-          },
-          {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png'
-          },
-          {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
+            src: 'icon.svg',
+            sizes: 'any',
+            type: 'image/svg+xml',
             purpose: 'any maskable'
           }
         ]
