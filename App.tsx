@@ -886,7 +886,7 @@ const App: React.FC = () => {
                 </div>
                 
                 {/* Button Grid */}
-                <div className="flex-1 grid grid-cols-4 gap-2 md:gap-3 pb-2">
+                <div className="flex-1 grid grid-cols-4 grid-rows-5 gap-2 md:gap-3 pb-2">
                     {/* Row 1 */}
                     <CalculatorButton label="AC" onClick={handleClear} variant="danger" />
                     <CalculatorButton label="CE" onClick={handleBackspace} variant="danger" />
