@@ -1,3 +1,4 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -7,12 +8,44 @@
   width: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #1e293b; 
+  background: rgb(var(--color-bg-card)); 
 }
 ::-webkit-scrollbar-thumb {
-  background: #475569; 
+  background: rgb(var(--color-bg-dark)); 
   border-radius: 4px;
+  opacity: 0.5;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #64748b; 
+  background: rgb(var(--color-push)); 
+}
+
+/* 
+  DEFINICIÓN DE TEMAS 
+  Los valores son RGB separados por espacio para que Tailwind pueda aplicar opacidad.
+*/
+:root {
+  /* DEFAULT THEME (Emerald/Slate) */
+  --color-bg-dark: 15 23 42;    /* Slate 900 */
+  --color-bg-card: 30 41 59;    /* Slate 800 */
+  --color-accent: 16 185 129;   /* Emerald 500 */
+  --color-push: 99 102 241;     /* Indigo 500 */
+  --color-danger: 239 68 68;    /* Red 500 */
+}
+
+[data-theme='synthwave'] {
+  /* SYNTHWAVE THEME (Pink/Purple) */
+  --color-bg-dark: 36 0 70;     /* Deep Purple */
+  --color-bg-card: 60 9 108;    /* Violet */
+  --color-accent: 236 72 153;   /* Pink 500 */
+  --color-push: 168 85 247;     /* Purple 500 */
+  --color-danger: 220 38 38;    /* Red 600 */
+}
+
+[data-theme='retro'] {
+  /* RETRO THEME (Teal/Pastel/Yellow) */
+  --color-bg-dark: 45 85 95;    /* Muted Teal */
+  --color-bg-card: 65 115 125;  /* Lighter Teal */
+  --color-accent: 250 204 21;   /* Yellow 400 (Contrast on Teal) */
+  --color-push: 251 146 60;     /* Orange 400 (Warmth) */
+  --color-danger: 248 113 113;  /* Red 400 */
 }

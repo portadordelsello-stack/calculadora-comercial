@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import firebase from 'firebase/compat/app';
@@ -7,7 +8,7 @@ import 'firebase/compat/firestore';
 import { Display } from './components/Display';
 import { CalculatorButton } from './components/CalculatorButton';
 import { Sale, Operator, PaymentMethod, User } from './types';
-import { Download, History, DollarSign, Trash2, ShoppingBag, User as UserIcon, Banknote, ArrowRightLeft, ShieldCheck, LogOut, ArrowLeft, LogIn, KeyRound, Users, CheckCircle2, AlertTriangle, UserPlus, X, Loader2, Pencil, Save, Mail, AlertCircle, Lock, CreditCard } from 'lucide-react';
+import { Download, History, DollarSign, Trash2, ShoppingBag, User as UserIcon, Banknote, ArrowRightLeft, ShieldCheck, LogOut, ArrowLeft, LogIn, KeyRound, Users, CheckCircle2, AlertTriangle, UserPlus, X, Loader2, Pencil, Save, Mail, AlertCircle, Lock, CreditCard, Palette } from 'lucide-react';
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
@@ -25,12 +26,13 @@ const app = firebase.apps.length === 0 ? firebase.initializeApp(firebaseConfig) 
 const auth = firebase.auth(app);
 const db = firebase.firestore(app);
 
+type ThemeType = 'default' | 'synthwave' | 'retro';
+
 const App: React.FC = () => {
   // --- Auth State ---
   const [user, setUser] = useState<User | null>(null);
   
   // Login/Register Form State
-  // Removed setAuthMode to fix unused variable error. Default is 'login'.
   const [authMode] = useState<'login' | 'register'>('login');
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
@@ -67,6 +69,11 @@ const App: React.FC = () => {
   const [changePasswordError, setChangePasswordError] = useState('');
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
+  // --- Theme State ---
+  const [theme, setTheme] = useState<ThemeType>('default');
+  const [showThemeMenu, setShowThemeMenu] = useState(false);
+  const themeMenuRef = useRef<HTMLDivElement>(null);
+
   // --- Calculator State ---
   const [currentInput, setCurrentInput] = useState<string>('0');
   const [previousInput, setPreviousInput] = useState<string>('');
@@ -85,6 +92,38 @@ const App: React.FC = () => {
       setIsConfigured(false);
     }
   }, []);
+
+  // --- THEME LOGIC ---
+  useEffect(() => {
+      // Apply theme to document root
+      if (theme === 'default') {
+          document.documentElement.removeAttribute('data-theme');
+      } else {
+          document.documentElement.setAttribute('data-theme', theme);
+      }
+      // Optional: Save to local storage
+      localStorage.setItem('comercicalc-theme', theme);
+  }, [theme]);
+
+  // Load theme from storage
+  useEffect(() => {
+      const savedTheme = localStorage.getItem('comercicalc-theme') as ThemeType;
+      if (savedTheme) {
+          setTheme(savedTheme);
+      }
+  }, []);
+
+  // Close theme menu on click outside
+  useEffect(() => {
+      const handleClickOutside = (event: MouseEvent) => {
+          if (themeMenuRef.current && !themeMenuRef.current.contains(event.target as Node)) {
+              setShowThemeMenu(false);
+          }
+      };
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
 
   // --- REAL-TIME DATA LISTENERS ---
 
@@ -809,12 +848,12 @@ const App: React.FC = () => {
 
   // --- RENDER: APP MAIN ---
   return (
-    <div className="h-full w-full flex flex-col bg-brand-dark overflow-hidden relative">
+    <div className="h-full w-full flex flex-col bg-brand-dark overflow-hidden relative transition-colors duration-300">
       
       {/* Top Navigation Bar */}
-      <nav className="flex items-center justify-between p-3 bg-slate-900 border-b border-slate-800 z-10 shrink-0">
+      <nav className="flex items-center justify-between p-3 bg-brand-card/80 backdrop-blur-md border-b border-brand-card z-10 shrink-0 shadow-sm transition-colors duration-300">
         <div className="flex items-center gap-3">
-          <div className="bg-brand-accent p-2 rounded-lg">
+          <div className="bg-brand-accent p-2 rounded-lg shadow-lg shadow-brand-accent/20">
             <ShoppingBag className="text-brand-dark w-5 h-5" />
           </div>
           <div>
@@ -834,7 +873,7 @@ const App: React.FC = () => {
                           setView('calculator');
                       }
                   }}
-                  className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-200 transition-colors"
+                  className="flex items-center gap-2 px-3 py-2 bg-slate-800/50 hover:bg-slate-700 rounded-lg text-slate-200 transition-colors"
                 >
                   <ArrowLeft size={18} />
                   <span className="hidden md:inline">Volver</span>
@@ -842,7 +881,7 @@ const App: React.FC = () => {
             ) : view === 'seller_select' ? (
                 <button 
                   onClick={() => setView('calculator')}
-                  className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-200 transition-colors"
+                  className="flex items-center gap-2 px-3 py-2 bg-slate-800/50 hover:bg-slate-700 rounded-lg text-slate-200 transition-colors"
                 >
                   <ArrowLeft size={18} />
                   <span className="hidden md:inline">Volver</span>
@@ -851,17 +890,58 @@ const App: React.FC = () => {
                 /* Profile Button - Only visible in Calculator view */
                 <button 
                   onClick={handleProfileClick}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-slate-200 transition-colors border border-slate-700 
-                    ${user.role === 'admin' ? 'bg-slate-800 hover:bg-slate-700' : 'bg-slate-800 hover:bg-slate-700'}`}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-slate-200 transition-colors border border-white/10 
+                    ${user.role === 'admin' ? 'bg-brand-card hover:bg-slate-700' : 'bg-brand-card hover:bg-slate-700'}`}
                 >
                   <UserIcon size={16} className={user.role === 'admin' ? 'text-brand-accent' : 'text-blue-400'} />
                   <span className="font-medium max-w-[100px] truncate">{user.name}</span>
                 </button>
             )}
             
+            {/* THEME SELECTOR BUTTON */}
+            <div className="relative" ref={themeMenuRef}>
+                <button 
+                    onClick={() => setShowThemeMenu(!showThemeMenu)}
+                    className="p-2.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors border border-transparent hover:border-white/20"
+                    title="Cambiar Tema"
+                >
+                    <Palette size={18} />
+                </button>
+
+                {showThemeMenu && (
+                    <div className="absolute top-full right-0 mt-2 w-48 bg-brand-card border border-white/10 rounded-xl shadow-2xl p-2 z-50 animate-fade-in origin-top-right">
+                        <div className="text-xs font-bold text-slate-400 px-3 py-2 uppercase tracking-wider">Apariencia</div>
+                        
+                        <button 
+                            onClick={() => { setTheme('default'); setShowThemeMenu(false); }}
+                            className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-3 hover:bg-white/5 transition-colors ${theme === 'default' ? 'text-brand-accent bg-white/5' : 'text-slate-300'}`}
+                        >
+                            <div className="w-4 h-4 rounded-full bg-[#10b981] shadow-sm"></div>
+                            <span>Original</span>
+                        </button>
+
+                        <button 
+                            onClick={() => { setTheme('synthwave'); setShowThemeMenu(false); }}
+                            className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-3 hover:bg-white/5 transition-colors ${theme === 'synthwave' ? 'text-brand-accent bg-white/5' : 'text-slate-300'}`}
+                        >
+                            <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[#ec4899] to-[#a855f7] shadow-sm"></div>
+                            <span>Synthwave</span>
+                        </button>
+
+                         <button 
+                            onClick={() => { setTheme('retro'); setShowThemeMenu(false); }}
+                            className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-3 hover:bg-white/5 transition-colors ${theme === 'retro' ? 'text-brand-accent bg-white/5' : 'text-slate-300'}`}
+                        >
+                            <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[#458595] to-[#facc15] shadow-sm"></div>
+                            <span>Retro</span>
+                        </button>
+                    </div>
+                )}
+            </div>
+
             <button 
                 onClick={handleOpenChangePassword}
-                className="p-2.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-slate-700"
+                className="p-2.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors border border-transparent hover:border-white/20"
                 title="Cambiar mi Contraseña"
             >
                 <KeyRound size={18} />
@@ -869,7 +949,7 @@ const App: React.FC = () => {
 
             <button 
               onClick={handleLogout}
-              className="p-2.5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+              className="p-2.5 text-slate-400 hover:text-brand-danger hover:bg-brand-danger/10 rounded-lg transition-colors"
               title="Cerrar Sesión"
             >
               <LogOut size={18} />
@@ -967,7 +1047,7 @@ const App: React.FC = () => {
                         {/* Option: All Sales */}
                         <button 
                             onClick={() => handleSellerSelect(null)}
-                            className="bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-brand-push p-6 rounded-2xl flex flex-col items-center gap-4 transition-all group shadow-lg"
+                            className="bg-brand-card hover:bg-white/5 border border-white/10 hover:border-brand-push p-6 rounded-2xl flex flex-col items-center gap-4 transition-all group shadow-lg"
                         >
                             <div className="w-16 h-16 rounded-full bg-brand-push/20 flex items-center justify-center text-brand-push group-hover:scale-110 transition-transform">
                                 <History size={32} />
@@ -982,7 +1062,7 @@ const App: React.FC = () => {
                         {sellersList.filter(u => u.role === 'seller').map((seller) => (
                              <div 
                                 key={seller.uid}
-                                className="bg-slate-800 border border-slate-700 p-6 rounded-2xl flex flex-col items-center gap-4 transition-all shadow-lg relative group"
+                                className="bg-brand-card border border-white/10 p-6 rounded-2xl flex flex-col items-center gap-4 transition-all shadow-lg relative group"
                             >
                                 <button 
                                   onClick={() => handleSellerSelect(seller.uid)}
@@ -1002,7 +1082,7 @@ const App: React.FC = () => {
                                    </button>
                                 </div>
 
-                                <div className="w-16 h-16 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 group-hover:text-brand-accent group-hover:bg-brand-accent/20 transition-colors pointer-events-none">
+                                <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center text-slate-300 group-hover:text-brand-accent group-hover:bg-brand-accent/20 transition-colors pointer-events-none">
                                     <span className="text-2xl font-bold">{seller.name.charAt(0).toUpperCase()}</span>
                                 </div>
                                 <div className="text-center pointer-events-none">
@@ -1019,8 +1099,8 @@ const App: React.FC = () => {
         {/* --- View: Sales Log --- */}
         {view === 'sales_log' && (
             <div className="h-full p-4 md:p-8 overflow-y-auto max-w-5xl mx-auto animate-fade-in">
-                <div className="bg-brand-card rounded-3xl shadow-xl flex flex-col border border-slate-700/50 min-h-[500px]">
-                    <div className="p-4 md:p-6 border-b border-slate-700 bg-slate-800/50 flex flex-col md:flex-row justify-between items-center gap-4">
+                <div className="bg-brand-card rounded-3xl shadow-xl flex flex-col border border-white/10 min-h-[500px]">
+                    <div className="p-4 md:p-6 border-b border-white/10 bg-black/20 flex flex-col md:flex-row justify-between items-center gap-4">
                         <div className="flex items-center gap-2 text-slate-200 self-start md:self-center">
                             <History size={20} className={user.role === 'admin' ? "text-brand-accent" : "text-blue-400"} />
                             <h2 className="font-semibold text-lg">
@@ -1040,7 +1120,7 @@ const App: React.FC = () => {
                         <div className="flex items-center gap-3 w-full md:w-auto">
                             <button 
                                 onClick={pushData}
-                                className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-brand-push hover:bg-indigo-500 text-white rounded-lg transition-colors font-medium shadow-lg shadow-indigo-500/20"
+                                className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-brand-push hover:bg-brand-push/80 text-white rounded-lg transition-colors font-medium shadow-lg shadow-brand-push/20"
                             >
                                 <Download size={18} />
                                 <span>PUSH (PDF)</span>
@@ -1048,7 +1128,7 @@ const App: React.FC = () => {
                             {user.role === 'admin' && (
                               <button 
                                   onClick={clearHistory}
-                                  className="flex items-center justify-center gap-2 px-3 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg transition-colors text-sm font-medium border border-red-500/20"
+                                  className="flex items-center justify-center gap-2 px-3 py-2 bg-brand-danger/10 hover:bg-brand-danger/20 text-brand-danger rounded-lg transition-colors text-sm font-medium border border-brand-danger/20"
                                   title="Borrar Todo de la Nube"
                               >
                                   <Trash2 size={18} />
@@ -1058,8 +1138,8 @@ const App: React.FC = () => {
                     </div>
                     
                     {/* Stats */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 border-b border-slate-700">
-                         <div className="p-6 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-slate-700">
+                    <div className="grid grid-cols-1 md:grid-cols-2 border-b border-white/10">
+                         <div className="p-6 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-white/10">
                             <span className="text-slate-400 text-sm font-medium uppercase tracking-widest mb-1">Total {user.role === 'admin' && !selectedSellerFilter ? 'General' : 'Personal'}</span>
                             <div className={`flex items-start ${user.role === 'admin' ? 'text-brand-accent' : 'text-blue-400'}`}>
                                 <DollarSign size={24} className="mt-2" />
@@ -1076,7 +1156,7 @@ const App: React.FC = () => {
                     <div className="flex-1 p-0 overflow-x-auto">
                         <table className="w-full text-left border-collapse min-w-[600px]">
                             <thead>
-                                <tr className="text-slate-400 text-xs uppercase border-b border-slate-700 bg-slate-900/30">
+                                <tr className="text-slate-400 text-xs uppercase border-b border-white/10 bg-black/20">
                                     <th className="p-4 font-medium">Hora / Fecha</th>
                                     {/* Only show "Vendedor" column if Admin is viewing ALL sales */}
                                     {user.role === 'admin' && !selectedSellerFilter && <th className="p-4 font-medium">Vendedor</th>}
@@ -1084,9 +1164,9 @@ const App: React.FC = () => {
                                     <th className="p-4 font-medium text-right">Monto</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-700">
+                            <tbody className="divide-y divide-white/10">
                                 {visibleSales.map((sale) => (
-                                    <tr key={sale.id} className="hover:bg-slate-700/30 transition-colors">
+                                    <tr key={sale.id} className="hover:bg-white/5 transition-colors">
                                         <td className="p-4 text-slate-300 font-mono">
                                             <div className="flex flex-col">
                                               <span>{new Date(sale.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
@@ -1096,7 +1176,7 @@ const App: React.FC = () => {
                                         {user.role === 'admin' && !selectedSellerFilter && (
                                           <td className="p-4">
                                             <div className="flex items-center gap-2">
-                                              <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center text-xs text-slate-300 border border-slate-600">
+                                              <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-xs text-slate-300 border border-white/10">
                                                 {(sale.userName?.[0] || '?').toUpperCase()}
                                               </div>
                                               <span className="text-sm text-slate-200">{sale.userName || 'N/A'}</span>
@@ -1137,7 +1217,7 @@ const App: React.FC = () => {
         {/* --- Payment Modal --- */}
         {showPaymentModal && (
             <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-                <div className="bg-brand-card w-full max-w-sm rounded-2xl shadow-2xl border border-slate-600 overflow-hidden transform transition-all scale-100">
+                <div className="bg-brand-card w-full max-w-sm rounded-2xl shadow-2xl border border-white/20 overflow-hidden transform transition-all scale-100">
                     <div className="bg-brand-accent p-6 text-brand-dark flex flex-col items-center">
                         <ShieldCheck size={48} className="mb-2 opacity-80" />
                         <h3 className="text-2xl font-bold uppercase tracking-tight">Cerrar Venta</h3>
@@ -1151,7 +1231,7 @@ const App: React.FC = () => {
                         
                         <button 
                             onClick={() => finalizeSale('Tarjeta Débito/Crédito')}
-                            className="w-full p-4 bg-slate-800 hover:bg-blue-600/20 border border-slate-700 hover:border-blue-500 rounded-xl flex items-center justify-between group transition-all"
+                            className="w-full p-4 bg-black/20 hover:bg-blue-600/20 border border-white/10 hover:border-blue-500 rounded-xl flex items-center justify-between group transition-all"
                         >
                             <div className="flex items-center gap-3">
                                 <div className="p-2 bg-blue-500/20 rounded-lg text-blue-400 group-hover:text-blue-300">
@@ -1163,7 +1243,7 @@ const App: React.FC = () => {
 
                         <button 
                             onClick={() => finalizeSale('Transferencia')}
-                            className="w-full p-4 bg-slate-800 hover:bg-purple-600/20 border border-slate-700 hover:border-purple-500 rounded-xl flex items-center justify-between group transition-all"
+                            className="w-full p-4 bg-black/20 hover:bg-purple-600/20 border border-white/10 hover:border-purple-500 rounded-xl flex items-center justify-between group transition-all"
                         >
                              <div className="flex items-center gap-3">
                                 <div className="p-2 bg-purple-500/20 rounded-lg text-purple-400 group-hover:text-purple-300">
@@ -1175,7 +1255,7 @@ const App: React.FC = () => {
 
                         <button 
                             onClick={() => finalizeSale('Efectivo')}
-                            className="w-full p-4 bg-slate-800 hover:bg-green-600/20 border border-slate-700 hover:border-green-500 rounded-xl flex items-center justify-between group transition-all"
+                            className="w-full p-4 bg-black/20 hover:bg-green-600/20 border border-white/10 hover:border-green-500 rounded-xl flex items-center justify-between group transition-all"
                         >
                              <div className="flex items-center gap-3">
                                 <div className="p-2 bg-green-500/20 rounded-lg text-green-400 group-hover:text-green-300">
@@ -1186,7 +1266,7 @@ const App: React.FC = () => {
                         </button>
                     </div>
 
-                    <div className="p-4 bg-slate-900 border-t border-slate-800">
+                    <div className="p-4 bg-black/30 border-t border-white/10">
                         <button 
                             onClick={() => setShowPaymentModal(false)}
                             className="w-full py-3 text-slate-400 hover:text-white font-medium flex items-center justify-center gap-2 transition-colors"
@@ -1202,8 +1282,8 @@ const App: React.FC = () => {
         {/* --- Create Seller Modal --- */}
         {showCreateSellerModal && (
             <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-                <div className="bg-brand-card w-full max-w-sm rounded-2xl shadow-2xl border border-slate-600 overflow-hidden transform transition-all scale-100">
-                    <div className="bg-slate-800 p-6 flex flex-col items-center relative border-b border-slate-700">
+                <div className="bg-brand-card w-full max-w-sm rounded-2xl shadow-2xl border border-white/20 overflow-hidden transform transition-all scale-100">
+                    <div className="bg-brand-card p-6 flex flex-col items-center relative border-b border-white/10">
                         <button 
                             onClick={() => setShowCreateSellerModal(false)}
                             className="absolute right-4 top-4 text-slate-400 hover:text-white"
@@ -1228,7 +1308,7 @@ const App: React.FC = () => {
                                     type="text" 
                                     value={newSellerName}
                                     onChange={(e) => setNewSellerName(e.target.value)}
-                                    className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-4 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-accent/50 transition-all"
+                                    className="w-full bg-black/20 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-accent/50 transition-all"
                                     placeholder="Nombre del Vendedor"
                                     required
                                     disabled={isCreatingSeller}
@@ -1246,7 +1326,7 @@ const App: React.FC = () => {
                                     type="email" 
                                     value={newSellerEmail}
                                     onChange={(e) => setNewSellerEmail(e.target.value)}
-                                    className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-4 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-accent/50 transition-all"
+                                    className="w-full bg-black/20 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-accent/50 transition-all"
                                     placeholder="vendedor@empresa.com"
                                     required
                                     disabled={isCreatingSeller}
@@ -1264,7 +1344,7 @@ const App: React.FC = () => {
                                     type="text" 
                                     value={newSellerPassword}
                                     onChange={(e) => setNewSellerPassword(e.target.value)}
-                                    className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-4 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-accent/50 transition-all"
+                                    className="w-full bg-black/20 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-accent/50 transition-all"
                                     placeholder="Contraseña inicial"
                                     required
                                     disabled={isCreatingSeller}
@@ -1307,8 +1387,8 @@ const App: React.FC = () => {
         {/* --- Edit Seller Modal --- */}
         {showEditSellerModal && editingUser && (
             <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-                <div className="bg-brand-card w-full max-w-sm rounded-2xl shadow-2xl border border-slate-600 overflow-hidden transform transition-all scale-100">
-                    <div className="bg-slate-800 p-6 flex flex-col items-center relative border-b border-slate-700">
+                <div className="bg-brand-card w-full max-w-sm rounded-2xl shadow-2xl border border-white/20 overflow-hidden transform transition-all scale-100">
+                    <div className="bg-brand-card p-6 flex flex-col items-center relative border-b border-white/10">
                         <button 
                             onClick={() => setShowEditSellerModal(false)}
                             className="absolute right-4 top-4 text-slate-400 hover:text-white"
@@ -1334,7 +1414,7 @@ const App: React.FC = () => {
                                         type="text" 
                                         value={editNameInput}
                                         onChange={(e) => setEditNameInput(e.target.value)}
-                                        className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-4 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-push/50 transition-all"
+                                        className="w-full bg-black/20 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-push/50 transition-all"
                                         placeholder="Nombre del Vendedor"
                                         required
                                         disabled={isUpdatingUser}
@@ -1352,8 +1432,8 @@ const App: React.FC = () => {
                             </button>
                         </form>
 
-                        <div className="border-t border-slate-700 pt-4 space-y-3">
-                             <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-700 flex items-start gap-3">
+                        <div className="border-t border-white/10 pt-4 space-y-3">
+                             <div className="bg-black/20 p-3 rounded-lg border border-white/10 flex items-start gap-3">
                                 <AlertCircle className="text-yellow-500 shrink-0 mt-0.5" size={16} />
                                 <p className="text-xs text-slate-400">
                                     Para cambiar el <strong>Email</strong>, elimine el usuario y créelo nuevamente.
@@ -1370,7 +1450,7 @@ const App: React.FC = () => {
 
                              <button 
                                 onClick={handleDeleteUser}
-                                className="w-full py-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 rounded-lg transition-all flex items-center justify-center gap-2 text-sm font-medium mt-2"
+                                className="w-full py-2.5 bg-brand-danger/10 hover:bg-brand-danger/20 text-brand-danger border border-brand-danger/20 rounded-lg transition-all flex items-center justify-center gap-2 text-sm font-medium mt-2"
                             >
                                 <Trash2 size={16} />
                                 Eliminar Usuario
@@ -1384,8 +1464,8 @@ const App: React.FC = () => {
         {/* --- Change Own Password Modal --- */}
         {showChangePasswordModal && (
             <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-                <div className="bg-brand-card w-full max-w-sm rounded-2xl shadow-2xl border border-slate-600 overflow-hidden transform transition-all scale-100">
-                    <div className="bg-slate-800 p-6 flex flex-col items-center relative border-b border-slate-700">
+                <div className="bg-brand-card w-full max-w-sm rounded-2xl shadow-2xl border border-white/20 overflow-hidden transform transition-all scale-100">
+                    <div className="bg-brand-card p-6 flex flex-col items-center relative border-b border-white/10">
                         <button 
                             onClick={() => setShowChangePasswordModal(false)}
                             className="absolute right-4 top-4 text-slate-400 hover:text-white"
@@ -1410,7 +1490,7 @@ const App: React.FC = () => {
                                     type="password" 
                                     value={newSelfPassword}
                                     onChange={(e) => setNewSelfPassword(e.target.value)}
-                                    className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-4 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-push/50 transition-all"
+                                    className="w-full bg-black/20 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-push/50 transition-all"
                                     placeholder="Nueva clave"
                                     required
                                     minLength={6}
@@ -1428,7 +1508,7 @@ const App: React.FC = () => {
                                     type="password" 
                                     value={confirmSelfPassword}
                                     onChange={(e) => setConfirmSelfPassword(e.target.value)}
-                                    className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-4 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-push/50 transition-all"
+                                    className="w-full bg-black/20 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-push/50 transition-all"
                                     placeholder="Repetir nueva clave"
                                     required
                                     minLength={6}
@@ -1448,7 +1528,7 @@ const App: React.FC = () => {
                             className={`w-full font-bold py-3.5 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 mt-2
                                 ${isChangingPassword 
                                     ? 'bg-slate-700 text-slate-400 cursor-wait' 
-                                    : 'bg-brand-push hover:bg-indigo-500 text-white shadow-indigo-500/20'}`}
+                                    : 'bg-brand-push hover:bg-brand-push/80 text-white shadow-brand-push/20'}`}
                         >
                             {isChangingPassword ? (
                                 <>
