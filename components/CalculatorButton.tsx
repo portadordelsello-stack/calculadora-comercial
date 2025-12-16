@@ -22,7 +22,7 @@ export const CalculatorButton: React.FC<CalculatorButtonProps> = ({
   // - active:translate-y-1 simulates pressing down
   // - active:shadow-none removes the depth shadow on press
   
-  const baseStyles = "relative rounded-2xl font-semibold transition-all duration-75 flex items-center justify-center select-none w-full h-full min-h-[60px] active:translate-y-1 active:shadow-none mb-1";
+  const baseStyles = "relative rounded-2xl font-semibold transition-all duration-75 flex items-center justify-center select-none w-full h-full min-h-[60px] active:translate-y-1 active:shadow-none";
   
   const variants = {
     // Slate 800 -> Shadow Slate 950 (#020617)

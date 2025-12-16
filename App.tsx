@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { initializeApp, deleteApp } from "firebase/app";
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail, updatePassword } from "firebase/auth";
-import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, deleteDoc, doc, setDoc, writeBatch, where, getDocs, updateDoc } from "firebase/firestore";
+import firebase from 'firebase/compat/app';
+import 'firebase/compat/auth';
+import 'firebase/compat/firestore';
 import { Display } from './components/Display';
 import { CalculatorButton } from './components/CalculatorButton';
 import { Sale, Operator, PaymentMethod, User } from './types';
@@ -21,9 +21,9 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
+const app = firebase.apps.length === 0 ? firebase.initializeApp(firebaseConfig) : firebase.app();
+const auth = firebase.auth(app);
+const db = firebase.firestore(app);
 
 const App: React.FC = () => {
   // --- Auth State ---
@@ -92,7 +92,7 @@ const App: React.FC = () => {
   useEffect(() => {
     let profileUnsubscribe: (() => void) | undefined;
 
-    const authUnsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    const authUnsubscribe = auth.onAuthStateChanged((firebaseUser) => {
       // Cleanup previous profile listener
       if (profileUnsubscribe) {
         profileUnsubscribe();
@@ -115,15 +115,15 @@ const App: React.FC = () => {
         setAuthError('');
 
         // 2. FIRESTORE SYNC
-        const userDocRef = doc(db, "users", firebaseUser.uid);
+        const userDocRef = db.collection("users").doc(firebaseUser.uid);
         
-        profileUnsubscribe = onSnapshot(userDocRef, (docSnap) => {
-            if (docSnap.exists()) {
+        profileUnsubscribe = userDocRef.onSnapshot((docSnap) => {
+            if (docSnap.exists) {
                 const data = docSnap.data();
                 setUser(prev => ({
                     ...prev!, // Safe because we set basicUser above
-                    role: data.role || prev?.role,
-                    name: data.name || prev?.name
+                    role: (data && data.role) || prev?.role,
+                    name: (data && data.name) || prev?.name
                 }));
             }
         }, (error) => {
@@ -148,10 +148,9 @@ const App: React.FC = () => {
     if (!user) return;
 
     // Load all sales ordered by date
-    const salesCollection = collection(db, "sales");
-    const q = query(salesCollection, orderBy("timestamp", "desc"));
+    const q = db.collection("sales").orderBy("timestamp", "desc");
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = q.onSnapshot((snapshot) => {
       const fetchedSales: Sale[] = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
@@ -168,8 +167,8 @@ const App: React.FC = () => {
   // 3. Sellers List Listener (For Admin View)
   useEffect(() => {
     if (user?.role === 'admin') {
-        const usersCol = collection(db, "users");
-        const unsubscribe = onSnapshot(usersCol, (snapshot) => {
+        const usersCol = db.collection("users");
+        const unsubscribe = usersCol.onSnapshot((snapshot) => {
             const users: User[] = snapshot.docs.map(doc => {
                 const data = doc.data();
                 return {
@@ -198,22 +197,24 @@ const App: React.FC = () => {
 
     try {
         if (authMode === 'login') {
-            await signInWithEmailAndPassword(auth, emailInput, passwordInput);
+            await auth.signInWithEmailAndPassword(emailInput, passwordInput);
         } else {
             // REGISTER NEW ADMIN
             if (!nameInput.trim()) {
                 setAuthError("Por favor ingresa un nombre.");
                 return;
             }
-            const userCredential = await createUserWithEmailAndPassword(auth, emailInput, passwordInput);
+            const userCredential = await auth.createUserWithEmailAndPassword(emailInput, passwordInput);
             const user = userCredential.user;
             
-            await setDoc(doc(db, "users", user.uid), {
-                name: nameInput,
-                email: user.email,
-                role: 'admin',
-                createdAt: new Date().toISOString()
-            });
+            if (user) {
+                await db.collection("users").doc(user.uid).set({
+                    name: nameInput,
+                    email: user.email,
+                    role: 'admin',
+                    createdAt: new Date().toISOString()
+                });
+            }
         }
     } catch (error: any) {
         console.error("Auth error", error);
@@ -236,22 +237,24 @@ const App: React.FC = () => {
       setCreateSellerError('');
       setIsCreatingSeller(true);
 
-      let secondaryApp: any = null;
+      let secondaryApp: firebase.app.App | null = null;
       try {
-          secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
-          const secondaryAuth = getAuth(secondaryApp);
+          secondaryApp = firebase.initializeApp(firebaseConfig, "SecondaryApp");
+          const secondaryAuth = secondaryApp.auth();
           
-          const userCredential = await createUserWithEmailAndPassword(secondaryAuth, newSellerEmail, newSellerPassword);
+          const userCredential = await secondaryAuth.createUserWithEmailAndPassword(newSellerEmail, newSellerPassword);
           const newUser = userCredential.user;
 
-          await setDoc(doc(db, "users", newUser.uid), {
-              name: newSellerName,
-              email: newUser.email,
-              role: 'seller',
-              createdAt: new Date().toISOString()
-          });
+          if (newUser) {
+              await db.collection("users").doc(newUser.uid).set({
+                  name: newSellerName,
+                  email: newUser.email,
+                  role: 'seller',
+                  createdAt: new Date().toISOString()
+              });
+          }
 
-          await signOut(secondaryAuth);
+          await secondaryAuth.signOut();
           
           alert("Vendedor creado exitosamente.");
           setShowCreateSellerModal(false);
@@ -273,13 +276,13 @@ const App: React.FC = () => {
       } finally {
           setIsCreatingSeller(false);
           if (secondaryApp) {
-              deleteApp(secondaryApp).catch(console.error);
+              secondaryApp.delete().catch(console.error);
           }
       }
   };
 
   const handleLogout = async () => {
-    await signOut(auth);
+    await auth.signOut();
     setEmailInput('');
     setPasswordInput('');
     setNameInput('');
@@ -328,7 +331,7 @@ const App: React.FC = () => {
 
       setIsChangingPassword(true);
       try {
-          await updatePassword(currentUser, newSelfPassword);
+          await currentUser.updatePassword(newSelfPassword);
           alert("Contraseña actualizada correctamente.");
           setShowChangePasswordModal(false);
       } catch (error: any) {
@@ -360,8 +363,8 @@ const App: React.FC = () => {
       
       setIsUpdatingUser(true);
       try {
-          const userRef = doc(db, "users", editingUser.uid);
-          await updateDoc(userRef, {
+          const userRef = db.collection("users").doc(editingUser.uid);
+          await userRef.update({
               name: editNameInput
           });
           alert("Usuario actualizado correctamente.");
@@ -380,7 +383,7 @@ const App: React.FC = () => {
 
       setIsUpdatingUser(true);
       try {
-          await deleteDoc(doc(db, "users", editingUser.uid));
+          await db.collection("users").doc(editingUser.uid).delete();
           alert("Usuario eliminado correctamente.");
           setShowEditSellerModal(false);
       } catch (error) {
@@ -396,7 +399,7 @@ const App: React.FC = () => {
       if (!confirm(`¿Enviar correo de restablecimiento de contraseña a ${editingUser.email}?`)) return;
 
       try {
-          await sendPasswordResetEmail(auth, editingUser.email);
+          await auth.sendPasswordResetEmail(editingUser.email);
           alert(`Correo enviado a ${editingUser.email}. El usuario podrá crear una nueva contraseña siguiendo el enlace.`);
       } catch (error: any) {
           console.error("Error sending reset email:", error);
@@ -514,7 +517,7 @@ const App: React.FC = () => {
     const timestamp = Date.now();
     
     try {
-        await addDoc(collection(db, "sales"), {
+        await db.collection("sales").add({
             amount: amount,
             paymentMethod: method,
             date: new Date().toISOString(),
@@ -661,17 +664,17 @@ const App: React.FC = () => {
 
     if(confirm(msg)) {
         try {
-            const batch = writeBatch(db);
-            const salesCol = collection(db, "sales");
+            const batch = db.batch();
+            const salesCol = db.collection("sales");
             let q;
 
             if (selectedSellerFilter) {
-                q = query(salesCol, where("userId", "==", selectedSellerFilter));
+                q = salesCol.where("userId", "==", selectedSellerFilter);
             } else {
-                q = query(salesCol); // Get all
+                q = salesCol; // Get all
             }
 
-            const snapshot = await getDocs(q);
+            const snapshot = await q.get();
             snapshot.docs.forEach((doc) => {
                 batch.delete(doc.ref);
             });
@@ -877,16 +880,16 @@ const App: React.FC = () => {
       <div className="flex-1 overflow-hidden relative w-full h-full">
         {/* --- View: Calculator --- */}
         {view === 'calculator' && (
-            <div className="h-full flex flex-col p-2 md:p-4 gap-2 md:gap-4 max-w-3xl mx-auto w-full animate-fade-in">
+            <div className="h-full flex flex-col p-2 gap-2 max-w-3xl mx-auto w-full animate-fade-in">
                 {/* Display Area */}
-                <div className="shrink-0 mb-2 md:mb-4">
+                <div className="shrink-0 mb-2">
                     <div className="w-full">
                         <Display value={currentInput} previousValue={previousInput} operator={operator} />
                     </div>
                 </div>
                 
-                {/* Button Grid */}
-                <div className="flex-1 grid grid-cols-4 grid-rows-5 gap-2 md:gap-3 pb-2">
+                {/* Button Grid - Removed padding-bottom (pb-2) to fill space */}
+                <div className="flex-1 grid grid-cols-4 grid-rows-5 gap-2 md:gap-3">
                     {/* Row 1 */}
                     <CalculatorButton label="AC" onClick={handleClear} variant="danger" />
                     <CalculatorButton label="CE" onClick={handleBackspace} variant="danger" />
