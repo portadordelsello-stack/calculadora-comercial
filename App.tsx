@@ -2,29 +2,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import firebase from 'firebase/compat/app';
-import 'firebase/compat/auth';
-import 'firebase/compat/firestore';
+import { supabase, createAdminHelperClient, isSupabaseConfigured } from './supabase';
 import { Display } from './components/Display';
 import { CalculatorButton } from './components/CalculatorButton';
 import { Sale, Operator, PaymentMethod, User } from './types';
 import { Download, History, DollarSign, Trash2, ShoppingBag, User as UserIcon, Banknote, ArrowRightLeft, ShieldCheck, LogOut, ArrowLeft, LogIn, KeyRound, Users, CheckCircle2, AlertTriangle, UserPlus, X, Loader2, Pencil, Save, Mail, AlertCircle, Lock, CreditCard, Palette } from 'lucide-react';
-
-// --- FIREBASE CONFIGURATION ---
-const firebaseConfig = {
-  apiKey: "AIzaSyDtzGaRMQtHZA6liMYuIyaWLe7PijfwNS0",
-  authDomain: "comercicalc.firebaseapp.com",
-  projectId: "comercicalc",
-  storageBucket: "comercicalc.firebasestorage.app",
-  messagingSenderId: "889998178236",
-  appId: "1:889998178236:web:6a3c1e3405c5ffabfd9db9",
-  measurementId: "G-JJ98Y9MZFZ"
-};
-
-// Initialize Firebase
-const app = firebase.apps.length === 0 ? firebase.initializeApp(firebaseConfig) : firebase.app();
-const auth = firebase.auth(app);
-const db = firebase.firestore(app);
 
 type ThemeType = 'default' | 'synthwave' | 'retro';
 
@@ -33,12 +15,12 @@ const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   
   // Login/Register Form State
-  const [authMode] = useState<'login' | 'register'>('login');
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [nameInput, setNameInput] = useState(''); // Only for register
   const [authError, setAuthError] = useState('');
-  const [isConfigured, setIsConfigured] = useState(true);
+  const [isConfigured] = useState(isSupabaseConfigured);
 
   // --- App Views ---
   const [view, setView] = useState<'login' | 'calculator' | 'sales_log' | 'seller_select'>('login');
@@ -86,13 +68,6 @@ const App: React.FC = () => {
   // --- Sales Data State ---
   const [sales, setSales] = useState<Sale[]>([]);
 
-  // Check if config is placeholder
-  useEffect(() => {
-    if (firebaseConfig.apiKey.includes("TU_API_KEY")) {
-      setIsConfigured(false);
-    }
-  }, []);
-
   // --- THEME LOGIC ---
   useEffect(() => {
       // Apply theme to document root
@@ -125,107 +100,175 @@ const App: React.FC = () => {
   }, []);
 
 
+  // --- USER PROFILE HELPER ---
+  const loadUserProfile = useCallback(async (uid: string, fallbackEmail: string) => {
+    try {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', uid)
+        .maybeSingle();
+
+      if (profile) {
+        setUser({
+          uid: profile.id,
+          email: profile.email || fallbackEmail,
+          username: profile.email || profile.name || fallbackEmail,
+          role: profile.role,
+          name: profile.name
+        });
+      } else {
+        const isAdminEmail = fallbackEmail.toLowerCase().includes('admin');
+        setUser({
+          uid,
+          email: fallbackEmail,
+          username: fallbackEmail,
+          role: isAdminEmail ? 'admin' : 'seller',
+          name: fallbackEmail.split('@')[0] || 'Usuario'
+        });
+      }
+      setView(currentView => currentView === 'login' ? 'calculator' : currentView);
+      setAuthError('');
+    } catch (err) {
+      console.error('Error cargando perfil:', err);
+    }
+  }, []);
+
   // --- REAL-TIME DATA LISTENERS ---
 
   // 1. Auth & User Profile Listener
   useEffect(() => {
-    let profileUnsubscribe: (() => void) | undefined;
+    let isMounted = true;
 
-    const authUnsubscribe = auth.onAuthStateChanged((firebaseUser) => {
-      // Cleanup previous profile listener
-      if (profileUnsubscribe) {
-        profileUnsubscribe();
-        profileUnsubscribe = undefined;
-      }
-
-      if (firebaseUser) {
-        // 1. OPTIMISTIC UI
-        const isAdminEmail = firebaseUser.email?.toLowerCase().includes('admin');
-        const basicUser: User = {
-          uid: firebaseUser.uid,
-          email: firebaseUser.email || undefined,
-          username: firebaseUser.email || firebaseUser.uid,
-          role: isAdminEmail ? 'admin' : 'seller', // Fallback role from email
-          name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Usuario'
-        };
-
-        setUser(basicUser);
-        setView(currentView => currentView === 'login' ? 'calculator' : currentView);
-        setAuthError('');
-
-        // 2. FIRESTORE SYNC
-        const userDocRef = db.collection("users").doc(firebaseUser.uid);
-        
-        profileUnsubscribe = userDocRef.onSnapshot((docSnap) => {
-            if (docSnap.exists) {
-                const data = docSnap.data();
-                setUser(prev => ({
-                    ...prev!, // Safe because we set basicUser above
-                    role: (data && data.role) || prev?.role,
-                    name: (data && data.name) || prev?.name
-                }));
-            }
-        }, (error) => {
-            console.warn("Firestore access restricted (using Auth profile):", error.message);
-        });
-
+    // Check existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!isMounted) return;
+      if (session?.user) {
+        loadUserProfile(session.user.id, session.user.email || '');
       } else {
-        // User signed out
+        setUser(null);
+        setView('login');
+      }
+    });
+
+    // Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        await loadUserProfile(session.user.id, session.user.email || '');
+      } else {
         setUser(null);
         setView('login');
       }
     });
 
     return () => {
-        authUnsubscribe();
-        if (profileUnsubscribe) profileUnsubscribe();
+      isMounted = false;
+      subscription.unsubscribe();
     };
-  }, []);
+  }, [loadUserProfile]);
 
-  // 2. Sales Data Listener (Real-time)
+  // 2. Sales Data Listener (Real-time with Supabase)
+  const fetchSales = useCallback(async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from('sales')
+        .select('*')
+        .order('timestamp', { ascending: false });
+
+      if (error) {
+        console.error('Error reading sales:', error);
+        return;
+      }
+
+      if (data) {
+        const mappedSales: Sale[] = data.map(s => ({
+          id: s.id,
+          amount: Number(s.amount),
+          paymentMethod: s.payment_method as PaymentMethod,
+          date: s.date,
+          timestamp: Number(s.timestamp),
+          userId: s.user_id,
+          userName: s.user_name
+        }));
+        setSales(mappedSales);
+      }
+    } catch (err) {
+      console.error('Error in fetchSales:', err);
+    }
+  }, [user]);
+
   useEffect(() => {
     if (!user) return;
 
-    // Load all sales ordered by date
-    const q = db.collection("sales").orderBy("timestamp", "desc");
+    fetchSales();
 
-    const unsubscribe = q.onSnapshot((snapshot) => {
-      const fetchedSales: Sale[] = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as Sale));
-      setSales(fetchedSales);
-    }, (error) => {
-       console.error("Error reading sales:", error);
-       // Fail gracefully
-    });
+    const channel = supabase
+      .channel('sales_realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'sales' },
+        () => {
+          fetchSales();
+        }
+      )
+      .subscribe();
 
-    return () => unsubscribe();
-  }, [user]);
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, fetchSales]);
 
   // 3. Sellers List Listener (For Admin View)
-  useEffect(() => {
-    if (user?.role === 'admin') {
-        const usersCol = db.collection("users");
-        const unsubscribe = usersCol.onSnapshot((snapshot) => {
-            const users: User[] = snapshot.docs.map(doc => {
-                const data = doc.data();
-                return {
-                    uid: doc.id, // UID is the document ID
-                    username: data.email || doc.id,
-                    email: data.email,
-                    role: data.role || 'seller',
-                    name: data.name || 'Desconocido'
-                };
-            });
-            setSellersList(users);
-        }, (error) => {
-            console.error("Error fetching users list (Permissions?):", error);
-            setSellersList([]);
-        });
-        return () => unsubscribe();
+  const fetchSellers = useCallback(async () => {
+    if (user?.role !== 'admin') return;
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .order('name', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching sellers list:', error);
+        setSellersList([]);
+        return;
+      }
+
+      if (data) {
+        const users: User[] = data.map(p => ({
+          uid: p.id,
+          username: p.email || p.id,
+          email: p.email,
+          role: p.role,
+          name: p.name || 'Desconocido'
+        }));
+        setSellersList(users);
+      }
+    } catch (err) {
+      console.error('Error in fetchSellers:', err);
     }
   }, [user?.role]);
+
+  useEffect(() => {
+    if (user?.role === 'admin') {
+      fetchSellers();
+
+      const channel = supabase
+        .channel('profiles_realtime')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'profiles' },
+          () => {
+            fetchSellers();
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
+  }, [user?.role, fetchSellers]);
 
   // --- Auth Logic ---
   
@@ -236,37 +279,54 @@ const App: React.FC = () => {
 
     try {
         if (authMode === 'login') {
-            await auth.signInWithEmailAndPassword(emailInput, passwordInput);
+            const { error } = await supabase.auth.signInWithPassword({
+                email: emailInput.trim(),
+                password: passwordInput,
+            });
+            if (error) throw error;
         } else {
             // REGISTER NEW ADMIN
             if (!nameInput.trim()) {
                 setAuthError("Por favor ingresa un nombre.");
                 return;
             }
-            const userCredential = await auth.createUserWithEmailAndPassword(emailInput, passwordInput);
-            const user = userCredential.user;
-            
-            if (user) {
-                await db.collection("users").doc(user.uid).set({
-                    name: nameInput,
-                    email: user.email,
-                    role: 'admin',
-                    createdAt: new Date().toISOString()
+            const { data, error } = await supabase.auth.signUp({
+                email: emailInput.trim(),
+                password: passwordInput,
+                options: {
+                    data: {
+                        name: nameInput.trim(),
+                        role: 'admin'
+                    }
+                }
+            });
+            if (error) throw error;
+            if (data.user) {
+                await supabase.from('profiles').upsert({
+                    id: data.user.id,
+                    name: nameInput.trim(),
+                    email: data.user.email,
+                    role: 'admin'
                 });
+
+                if (data.session) {
+                    await loadUserProfile(data.user.id, data.user.email || '');
+                } else {
+                    alert("¡Cuenta de Administrador creada exitosamente! Ya puedes iniciar sesión con tu correo y contraseña.");
+                    setAuthMode('login');
+                }
             }
         }
     } catch (error: any) {
         console.error("Auth error", error);
-        if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+        if (error.message?.includes('Invalid login credentials')) {
             setAuthError('Credenciales incorrectas');
-        } else if (error.code === 'auth/invalid-email') {
-            setAuthError('Formato de email inválido');
-        } else if (error.code === 'auth/email-already-in-use') {
+        } else if (error.message?.includes('User already registered')) {
             setAuthError('El email ya está registrado');
-        } else if (error.code === 'auth/weak-password') {
+        } else if (error.message?.includes('Password should be')) {
             setAuthError('La contraseña debe tener al menos 6 caracteres');
         } else {
-            setAuthError(`Error: ${error.message}`);
+            setAuthError(error.message || 'Error de autenticación');
         }
     }
   };
@@ -276,52 +336,53 @@ const App: React.FC = () => {
       setCreateSellerError('');
       setIsCreatingSeller(true);
 
-      let secondaryApp: firebase.app.App | null = null;
       try {
-          secondaryApp = firebase.initializeApp(firebaseConfig, "SecondaryApp");
-          const secondaryAuth = secondaryApp.auth();
-          
-          const userCredential = await secondaryAuth.createUserWithEmailAndPassword(newSellerEmail, newSellerPassword);
-          const newUser = userCredential.user;
+          const helperClient = createAdminHelperClient();
+          const { data, error } = await helperClient.auth.signUp({
+              email: newSellerEmail.trim(),
+              password: newSellerPassword,
+              options: {
+                  data: {
+                      name: newSellerName.trim(),
+                      role: 'seller'
+                  }
+              }
+          });
 
-          if (newUser) {
-              await db.collection("users").doc(newUser.uid).set({
-                  name: newSellerName,
-                  email: newUser.email,
-                  role: 'seller',
-                  createdAt: new Date().toISOString()
+          if (error) throw error;
+
+          if (data.user) {
+              await supabase.from('profiles').upsert({
+                  id: data.user.id,
+                  name: newSellerName.trim(),
+                  email: data.user.email,
+                  role: 'seller'
               });
           }
 
-          await secondaryAuth.signOut();
-          
           alert("Vendedor creado exitosamente.");
           setShowCreateSellerModal(false);
           setNewSellerName('');
           setNewSellerEmail('');
           setNewSellerPassword('');
+          fetchSellers();
 
       } catch (error: any) {
           console.error("Error creating seller:", error);
-           if (error.code === 'auth/email-already-in-use') {
+          if (error.message?.includes('already registered')) {
               setCreateSellerError('El email ya está registrado.');
-          } else if (error.code === 'auth/weak-password') {
+          } else if (error.message?.includes('Password should be')) {
               setCreateSellerError('La contraseña debe tener al menos 6 caracteres.');
-          } else if (error.code === 'permission-denied') {
-              setCreateSellerError('Permisos insuficientes en Firebase Database.');
           } else {
               setCreateSellerError(error.message || "Error al crear vendedor.");
           }
       } finally {
           setIsCreatingSeller(false);
-          if (secondaryApp) {
-              secondaryApp.delete().catch(console.error);
-          }
       }
   };
 
   const handleLogout = async () => {
-    await auth.signOut();
+    await supabase.auth.signOut();
     setEmailInput('');
     setPasswordInput('');
     setNameInput('');
@@ -365,24 +426,17 @@ const App: React.FC = () => {
           return;
       }
 
-      const currentUser = auth.currentUser;
-      if (!currentUser) return;
-
       setIsChangingPassword(true);
       try {
-          await currentUser.updatePassword(newSelfPassword);
+          const { error } = await supabase.auth.updateUser({
+              password: newSelfPassword
+          });
+          if (error) throw error;
           alert("Contraseña actualizada correctamente.");
           setShowChangePasswordModal(false);
       } catch (error: any) {
           console.error("Error changing password:", error);
-          if (error.code === 'auth/requires-recent-login') {
-              alert("Por seguridad, como ha pasado tiempo desde tu último inicio de sesión, debes volver a ingresar para cambiar tu contraseña.");
-              handleLogout();
-          } else if (error.code === 'auth/weak-password') {
-              setChangePasswordError("La contraseña es muy débil.");
-          } else {
-              setChangePasswordError(error.message || "Error al cambiar contraseña.");
-          }
+          setChangePasswordError(error.message || "Error al cambiar contraseña.");
       } finally {
           setIsChangingPassword(false);
       }
@@ -402,12 +456,15 @@ const App: React.FC = () => {
       
       setIsUpdatingUser(true);
       try {
-          const userRef = db.collection("users").doc(editingUser.uid);
-          await userRef.update({
-              name: editNameInput
-          });
+          const { error } = await supabase
+              .from('profiles')
+              .update({ name: editNameInput })
+              .eq('id', editingUser.uid);
+
+          if (error) throw error;
           alert("Usuario actualizado correctamente.");
           setShowEditSellerModal(false);
+          fetchSellers();
       } catch (error) {
           console.error("Error updating user:", error);
           alert("Error al actualizar usuario.");
@@ -422,12 +479,18 @@ const App: React.FC = () => {
 
       setIsUpdatingUser(true);
       try {
-          await db.collection("users").doc(editingUser.uid).delete();
+          const { error } = await supabase
+              .from('profiles')
+              .delete()
+              .eq('id', editingUser.uid);
+
+          if (error) throw error;
           alert("Usuario eliminado correctamente.");
           setShowEditSellerModal(false);
+          fetchSellers();
       } catch (error) {
           console.error("Error deleting user:", error);
-          alert("Error al eliminar usuario de la base de datos.");
+          alert("Error al eliminar usuario.");
       } finally {
           setIsUpdatingUser(false);
       }
@@ -438,13 +501,15 @@ const App: React.FC = () => {
       if (!confirm(`¿Enviar correo de restablecimiento de contraseña a ${editingUser.email}?`)) return;
 
       try {
-          await auth.sendPasswordResetEmail(editingUser.email);
+          const { error } = await supabase.auth.resetPasswordForEmail(editingUser.email);
+          if (error) throw error;
           alert(`Correo enviado a ${editingUser.email}. El usuario podrá crear una nueva contraseña siguiendo el enlace.`);
       } catch (error: any) {
           console.error("Error sending reset email:", error);
           alert("Error al enviar el correo: " + error.message);
       }
   };
+
 
   // --- Calculator Logic ---
 
@@ -556,19 +621,22 @@ const App: React.FC = () => {
     const timestamp = Date.now();
     
     try {
-        await db.collection("sales").add({
+        const { error } = await supabase.from('sales').insert([{
             amount: amount,
-            paymentMethod: method,
+            payment_method: method,
             date: new Date().toISOString(),
             timestamp: timestamp,
-            userId: user.uid, // Save UID instead of email for robustness
-            userName: user.name
-        });
+            user_id: user.uid,
+            user_name: user.name
+        }]);
+
+        if (error) throw error;
         
         setShowPaymentModal(false);
         handleClear();
+        fetchSales();
     } catch (e) {
-        console.error("Error adding document: ", e);
+        console.error("Error adding sale: ", e);
         alert("Error al guardar la venta. Verifique su conexión.");
     }
   };
@@ -703,29 +771,24 @@ const App: React.FC = () => {
 
     if(confirm(msg)) {
         try {
-            const batch = db.batch();
-            const salesCol = db.collection("sales");
-            let q;
-
+            let error;
             if (selectedSellerFilter) {
-                q = salesCol.where("userId", "==", selectedSellerFilter);
+                const res = await supabase.from('sales').delete().eq('user_id', selectedSellerFilter);
+                error = res.error;
             } else {
-                q = salesCol; // Get all
+                const res = await supabase.from('sales').delete().neq('date', '');
+                error = res.error;
             }
 
-            const snapshot = await q.get();
-            snapshot.docs.forEach((doc) => {
-                batch.delete(doc.ref);
-            });
-
-            await batch.commit();
+            if (error) throw error;
             alert("Historial borrado correctamente.");
+            fetchSales();
         } catch (e) {
             console.error("Error deleting docs", e);
             alert("Error al borrar. Verifique permisos o conexión.");
         }
     }
-  }
+  };
 
   // --- RENDER: LOGIN / REGISTER VIEW ---
   if (view === 'login' || !user) {
@@ -739,8 +802,8 @@ const App: React.FC = () => {
             <div className="absolute top-4 left-4 right-4 bg-yellow-500/90 text-black p-4 rounded-xl z-50 flex items-start gap-3 shadow-lg">
                 <AlertTriangle className="shrink-0" />
                 <div>
-                    <h3 className="font-bold">Falta Configuración Firebase</h3>
-                    <p className="text-sm">Debes abrir el archivo <code>App.tsx</code> y reemplazar el objeto <code>firebaseConfig</code> con las credenciales de tu proyecto en Firebase Console.</p>
+                    <h3 className="font-bold">Falta Configuración Supabase</h3>
+                    <p className="text-sm">Configura las variables <code>VITE_SUPABASE_URL</code> y <code>VITE_SUPABASE_ANON_KEY</code> en tu archivo <code>.env</code> con las credenciales de tu proyecto en Supabase.</p>
                 </div>
             </div>
         )}
@@ -834,6 +897,21 @@ const App: React.FC = () => {
               {authMode === 'login' ? <LogIn size={20} /> : <UserPlus size={20} />}
               {authMode === 'login' ? 'Ingresar' : 'Crear Admin'}
             </button>
+
+            <div className="text-center pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode(authMode === 'login' ? 'register' : 'login');
+                  setAuthError('');
+                }}
+                className="text-xs text-brand-accent hover:underline transition-all"
+              >
+                {authMode === 'login' 
+                  ? '¿Primer acceso? Crear cuenta de Administrador' 
+                  : '¿Ya tienes cuenta? Iniciar Sesión'}
+              </button>
+            </div>
           </form>
 
           <div className="mt-4 pt-6 border-t border-slate-800 text-center">
