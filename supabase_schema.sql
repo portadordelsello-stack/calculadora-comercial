@@ -107,7 +107,7 @@ RETURNS BOOLEAN AS $$
     SELECT 1 FROM public.profiles
     WHERE id = auth.uid() AND role = 'superadmin'
   );
-$$ LANGUAGE sql SECURITY DEFINER STABLE;
+$$ LANGUAGE sql SECURITY DEFINER SET search_path = public STABLE;
 
 -- Función para verificar si el usuario conectado es ADMIN DE SU NEGOCIO
 CREATE OR REPLACE FUNCTION public.is_business_admin()
@@ -116,13 +116,13 @@ RETURNS BOOLEAN AS $$
     SELECT 1 FROM public.profiles
     WHERE id = auth.uid() AND role = 'business_admin'
   );
-$$ LANGUAGE sql SECURITY DEFINER STABLE;
+$$ LANGUAGE sql SECURITY DEFINER SET search_path = public STABLE;
 
 -- Función para obtener el business_id del usuario conectado
 CREATE OR REPLACE FUNCTION public.current_business_id()
 RETURNS UUID AS $$
   SELECT business_id FROM public.profiles WHERE id = auth.uid();
-$$ LANGUAGE sql SECURITY DEFINER STABLE;
+$$ LANGUAGE sql SECURITY DEFINER SET search_path = public STABLE;
 
 -- ==============================================================================
 -- 6. HABILITAR ROW LEVEL SECURITY (RLS)
@@ -135,17 +135,19 @@ ALTER TABLE public.sales ENABLE ROW LEVEL SECURITY;
 -- POLÍTICAS RLS: BUSINESSES
 -- ------------------------------------------------------------------------------
 DROP POLICY IF EXISTS "Superadmin control total comercios" ON public.businesses;
+DROP POLICY IF EXISTS "Comercio puede leer su propio negocio" ON public.businesses;
+DROP POLICY IF EXISTS "Comercio lee su propio negocio" ON public.businesses;
+DROP POLICY IF EXISTS "Lectura anonima de negocios activos para login" ON public.businesses;
+
 CREATE POLICY "Superadmin control total comercios" ON public.businesses
   FOR ALL TO authenticated
   USING (public.is_superadmin())
   WITH CHECK (public.is_superadmin());
 
-DROP POLICY IF EXISTS "Comercio puede leer su propio negocio" ON public.businesses;
 CREATE POLICY "Comercio puede leer su propio negocio" ON public.businesses
   FOR SELECT TO authenticated
   USING (id = public.current_business_id());
 
-DROP POLICY IF EXISTS "Lectura anonima de negocios activos para login" ON public.businesses;
 CREATE POLICY "Lectura anonima de negocios activos para login" ON public.businesses
   FOR SELECT TO anon
   USING (is_active = true);
@@ -154,34 +156,48 @@ CREATE POLICY "Lectura anonima de negocios activos para login" ON public.busines
 -- POLÍTICAS RLS: PROFILES
 -- ------------------------------------------------------------------------------
 DROP POLICY IF EXISTS "Superadmin control total perfiles" ON public.profiles;
+DROP POLICY IF EXISTS "Admin y usuarios gestionan perfiles de su comercio" ON public.profiles;
+DROP POLICY IF EXISTS "Ver perfiles del mismo comercio" ON public.profiles;
+DROP POLICY IF EXISTS "Admin comercio gestiona perfiles de su negocio" ON public.profiles;
+DROP POLICY IF EXISTS "Usuario actualiza su propio perfil" ON public.profiles;
+DROP POLICY IF EXISTS "Usuario ve su propio perfil" ON public.profiles;
+DROP POLICY IF EXISTS "Usuario edita su propio perfil" ON public.profiles;
+DROP POLICY IF EXISTS "Admin comercio ve perfiles de su negocio" ON public.profiles;
+
+-- 1. Superadmin tiene acceso irrestricto
 CREATE POLICY "Superadmin control total perfiles" ON public.profiles
   FOR ALL TO authenticated
   USING (public.is_superadmin())
   WITH CHECK (public.is_superadmin());
 
-DROP POLICY IF EXISTS "Ver perfiles del mismo comercio" ON public.profiles;
-CREATE POLICY "Ver perfiles del mismo comercio" ON public.profiles
+-- 2. Cada usuario puede ver y editar su propio perfil
+CREATE POLICY "Usuario ve su propio perfil" ON public.profiles
   FOR SELECT TO authenticated
-  USING (
-    business_id = public.current_business_id()
-    OR id = auth.uid()
-  );
+  USING (id = auth.uid());
 
-DROP POLICY IF EXISTS "Admin comercio gestiona perfiles de su negocio" ON public.profiles;
-CREATE POLICY "Admin comercio gestiona perfiles de su negocio" ON public.profiles
-  FOR ALL TO authenticated
-  USING (
-    public.is_business_admin() AND business_id = public.current_business_id()
-  )
-  WITH CHECK (
-    public.is_business_admin() AND business_id = public.current_business_id()
-  );
-
-DROP POLICY IF EXISTS "Usuario actualiza su propio perfil" ON public.profiles;
-CREATE POLICY "Usuario actualiza su propio perfil" ON public.profiles
+CREATE POLICY "Usuario edita su propio perfil" ON public.profiles
   FOR UPDATE TO authenticated
   USING (id = auth.uid())
   WITH CHECK (id = auth.uid());
+
+-- 3. Admin del comercio ve y administra perfiles de su propio negocio
+CREATE POLICY "Admin comercio ve perfiles de su negocio" ON public.profiles
+  FOR SELECT TO authenticated
+  USING (
+    public.is_business_admin() 
+    AND business_id = public.current_business_id()
+  );
+
+CREATE POLICY "Admin comercio gestiona perfiles de su negocio" ON public.profiles
+  FOR ALL TO authenticated
+  USING (
+    public.is_business_admin() 
+    AND business_id = public.current_business_id()
+  )
+  WITH CHECK (
+    public.is_business_admin() 
+    AND business_id = public.current_business_id()
+  );
 
 -- ------------------------------------------------------------------------------
 -- POLÍTICAS RLS: SALES
