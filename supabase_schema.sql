@@ -236,8 +236,62 @@ CREATE POLICY "Admin borra ventas de su propio negocio" ON public.sales
   );
 
 -- ==============================================================================
--- 7. HABILITAR PUBLICACIÓN EN TIEMPO REAL (REALTIME)
+-- 7. TABLA: CUSTOMERS (Clientes para la Libreta / Cuenta Corriente)
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS public.customers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_id UUID NOT NULL REFERENCES public.businesses(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  phone TEXT,
+  notes TEXT,
+  balance NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
+  created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::TEXT, NOW()) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_customers_business_id ON public.customers(business_id);
+CREATE INDEX IF NOT EXISTS idx_customers_name ON public.customers(name);
+
+-- Añadir campos de cliente a la tabla sales si no existen
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS customer_id UUID REFERENCES public.customers(id) ON DELETE SET NULL;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS customer_name TEXT;
+
+-- RLS: CUSTOMERS
+ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Superadmin control total clientes" ON public.customers;
+CREATE POLICY "Superadmin control total clientes" ON public.customers
+  FOR ALL TO authenticated
+  USING (public.is_superadmin())
+  WITH CHECK (public.is_superadmin());
+
+DROP POLICY IF EXISTS "Comercio lee sus clientes" ON public.customers;
+CREATE POLICY "Comercio lee sus clientes" ON public.customers
+  FOR SELECT TO authenticated
+  USING (business_id = public.current_business_id());
+
+DROP POLICY IF EXISTS "Admin comercio gestiona clientes" ON public.customers;
+CREATE POLICY "Admin comercio gestiona clientes" ON public.customers
+  FOR ALL TO authenticated
+  USING (
+    public.is_business_admin() 
+    AND business_id = public.current_business_id()
+  )
+  WITH CHECK (
+    public.is_business_admin() 
+    AND business_id = public.current_business_id()
+  );
+
+-- Cajeros pueden actualizar balance al fiar
+DROP POLICY IF EXISTS "Cajeros actualizan saldo de cliente en venta" ON public.customers;
+CREATE POLICY "Cajeros actualizan saldo de cliente en venta" ON public.customers
+  FOR UPDATE TO authenticated
+  USING (business_id = public.current_business_id())
+  WITH CHECK (business_id = public.current_business_id());
+
+-- ==============================================================================
+-- 8. HABILITAR PUBLICACIÓN EN TIEMPO REAL (REALTIME)
 -- ==============================================================================
 ALTER PUBLICATION supabase_realtime ADD TABLE public.businesses;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.profiles;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.sales;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.customers;

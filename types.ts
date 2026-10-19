@@ -1,4 +1,4 @@
-export type PaymentMethod = 'Tarjeta Débito/Crédito' | 'Transferencia' | 'Efectivo';
+export type PaymentMethod = 'Tarjeta Débito/Crédito' | 'Transferencia' | 'Efectivo' | 'QR' | 'Libreta';
 
 export type UserRole = 'superadmin' | 'business_admin' | 'seller';
 
@@ -15,6 +15,16 @@ export interface Business {
   // Campos calculados
   sellerCount?: number;
   totalSales?: number;
+}
+
+export interface Customer {
+  id: string;
+  businessId: string;
+  name: string;
+  phone?: string;
+  notes?: string;
+  balance: number; // Saldo adeudado acumulado
+  createdAt?: string;
 }
 
 export interface User {
@@ -37,6 +47,8 @@ export interface Sale {
   timestamp: number;
   userId: string; // UID of the seller
   userName: string; // Display name of the seller
+  customerId?: string | null;
+  customerName?: string | null;
 }
 
 export enum Operator {

@@ -6,8 +6,9 @@ import { supabase, createAdminHelperClient, isSupabaseConfigured, buildVirtualEm
 import { Display } from './components/Display';
 import { CalculatorButton } from './components/CalculatorButton';
 import { SuperAdminDashboard } from './components/SuperAdminDashboard';
-import { Sale, Operator, PaymentMethod, User, Business } from './types';
-import { Download, History, DollarSign, Trash2, ShoppingBag, User as UserIcon, Banknote, ArrowRightLeft, ShieldCheck, LogOut, ArrowLeft, LogIn, KeyRound, Users, CheckCircle2, AlertTriangle, UserPlus, X, Loader2, Pencil, Save, Mail, AlertCircle, Lock, CreditCard, Palette, Building2, Store } from 'lucide-react';
+import { Sale, Operator, PaymentMethod, User, Business, Customer } from './types';
+import { CustomersManagement } from './components/CustomersManagement';
+import { Download, History, DollarSign, Trash2, ShoppingBag, User as UserIcon, Banknote, ArrowRightLeft, ShieldCheck, LogOut, ArrowLeft, LogIn, KeyRound, Users, CheckCircle2, AlertTriangle, UserPlus, X, Loader2, Pencil, Save, Mail, AlertCircle, Lock, CreditCard, Palette, Building2, Store, QrCode, BookOpen, Search } from 'lucide-react';
 
 type ThemeType = 'default' | 'light-clean' | 'nordic-frost' | 'synthwave' | 'retro' | 'midnight';
 
@@ -26,9 +27,16 @@ const App: React.FC = () => {
   const [isConfigured] = useState(isSupabaseConfigured);
 
   // --- App Views ---
-  const [view, setView] = useState<'login' | 'calculator' | 'sales_log' | 'seller_select' | 'superadmin'>('login');
+  const [view, setView] = useState<'login' | 'calculator' | 'sales_log' | 'seller_select' | 'customers' | 'superadmin'>('login');
   const [showPaymentModal, setShowPaymentModal] = useState<boolean>(false);
   
+  // --- Libreta / Clientes State ---
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [showLibretaModal, setShowLibretaModal] = useState<boolean>(false);
+  const [customerSearchTerm, setCustomerSearchTerm] = useState<string>('');
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [isFinalizingLibreta, setIsFinalizingLibreta] = useState<boolean>(false);
+
   // --- Admin Filter State ---
   const [selectedSellerFilter, setSelectedSellerFilter] = useState<string | null>(null); // UID del cajero seleccionado
   const [sellersList, setSellersList] = useState<User[]>([]); // Lista de cajeros del negocio actual
@@ -250,7 +258,9 @@ const App: React.FC = () => {
           date: s.date,
           timestamp: Number(s.timestamp),
           userId: s.user_id,
-          userName: s.user_name
+          userName: s.user_name,
+          customerId: s.customer_id,
+          customerName: s.customer_name
         }));
         setSales(mappedSales);
       }
@@ -279,6 +289,63 @@ const App: React.FC = () => {
       supabase.removeChannel(channel);
     };
   }, [user, fetchSales]);
+
+  // 3. Customers Data Listener (Libreta / Cuenta Corriente)
+  const fetchCustomers = useCallback(async () => {
+    if (!user || user.role === 'superadmin') return;
+    try {
+      let query = supabase
+        .from('customers')
+        .select('*')
+        .order('name', { ascending: true });
+
+      if (user.businessId) {
+        query = query.eq('business_id', user.businessId);
+      }
+
+      const { data, error } = await query;
+      if (error) {
+        console.error('Error reading customers:', error);
+        return;
+      }
+
+      if (data) {
+        const mappedCustomers: Customer[] = data.map(c => ({
+          id: c.id,
+          businessId: c.business_id,
+          name: c.name,
+          phone: c.phone,
+          notes: c.notes,
+          balance: Number(c.balance || 0),
+          createdAt: c.created_at
+        }));
+        setCustomers(mappedCustomers);
+      }
+    } catch (err) {
+      console.error('Error in fetchCustomers:', err);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!user || user.role === 'superadmin') return;
+
+    fetchCustomers();
+
+    const channel = supabase
+      .channel('customers_realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'customers' },
+        () => {
+          fetchCustomers();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, fetchCustomers]);
 
   // 3. Sellers List Listener (For Business Admin View)
   const fetchSellers = useCallback(async () => {
@@ -710,7 +777,7 @@ const App: React.FC = () => {
     setShowPaymentModal(true);
   };
 
-  const finalizeSale = async (method: PaymentMethod) => {
+  const finalizeSale = async (method: PaymentMethod, customerId?: string | null, customerName?: string | null) => {
     if (!user) return;
 
     const amount = parseFloat(currentInput);
@@ -724,17 +791,59 @@ const App: React.FC = () => {
             date: new Date().toISOString(),
             timestamp: timestamp,
             user_id: user.uid,
-            user_name: user.name
+            user_name: user.name,
+            customer_id: customerId || null,
+            customer_name: customerName || null
         }]);
 
         if (error) throw error;
+
+        // Si fue por Libreta, incrementar el saldo adeudado del cliente
+        if (method === 'Libreta' && customerId) {
+          const targetCustomer = customers.find(c => c.id === customerId);
+          if (targetCustomer) {
+            const newBal = Number(targetCustomer.balance || 0) + amount;
+            await supabase
+              .from('customers')
+              .update({ balance: newBal })
+              .eq('id', customerId);
+          }
+        }
         
         setShowPaymentModal(false);
+        setShowLibretaModal(false);
+        setSelectedCustomerId(null);
+        setCustomerSearchTerm('');
         handleClear();
         fetchSales();
+        fetchCustomers();
     } catch (e) {
         console.error("Error adding sale: ", e);
         alert("Error al guardar la venta. Verifique su conexión.");
+    }
+  };
+
+  const handleSelectLibretaMethod = () => {
+    setShowPaymentModal(false);
+    setSelectedCustomerId(null);
+    setCustomerSearchTerm('');
+    setShowLibretaModal(true);
+  };
+
+  const handleConfirmLibretaSale = async () => {
+    if (!selectedCustomerId) {
+      alert("Por favor selecciona un cliente de la lista para continuar.");
+      return;
+    }
+
+    const selectedCust = customers.find(c => c.id === selectedCustomerId);
+    if (!selectedCust) return;
+
+    setIsFinalizingLibreta(true);
+    try {
+      await finalizeSale('Libreta', selectedCust.id, selectedCust.name);
+    } finally {
+      setIsFinalizingLibreta(false);
     }
   };
 
@@ -800,11 +909,15 @@ const App: React.FC = () => {
     const tableColumn = ["Fecha", "Hora", "Vendedor", "Método", "Monto"];
     const tableRows = visibleSales.map(sale => {
       const dateObj = new Date(sale.date);
+      const methodText = sale.paymentMethod === 'Libreta' && sale.customerName 
+        ? `Libreta (${sale.customerName})` 
+        : sale.paymentMethod;
+
       return [
         dateObj.toLocaleDateString(),
         dateObj.toLocaleTimeString(),
         sale.userName || 'Desconocido',
-        sale.paymentMethod,
+        methodText,
         `$${sale.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
       ];
     });
@@ -1089,6 +1202,14 @@ const App: React.FC = () => {
                   <ArrowLeft size={18} />
                   <span className="hidden md:inline">Volver</span>
                 </button>
+            ) : view === 'customers' ? (
+                <button 
+                  onClick={() => setView('seller_select')}
+                  className="flex items-center gap-2 px-3 py-2 bg-brand-card hover:opacity-90 rounded-lg text-brand-text-main transition-colors border border-black/5"
+                >
+                  <ArrowLeft size={18} />
+                  <span className="hidden md:inline">Volver</span>
+                </button>
             ) : (
                 /* Profile Button - Only visible in Calculator view */
                 <button 
@@ -1316,6 +1437,20 @@ const App: React.FC = () => {
                             </div>
                         </button>
 
+                        {/* Option: Clientes / Libreta */}
+                        <button 
+                            onClick={() => setView('customers')}
+                            className="bg-brand-card hover:bg-white/5 border border-white/10 hover:border-amber-500 p-6 rounded-2xl flex flex-col items-center gap-4 transition-all group shadow-lg"
+                        >
+                            <div className="w-16 h-16 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-400 group-hover:scale-110 transition-transform">
+                                <BookOpen size={32} />
+                            </div>
+                            <div className="text-center">
+                                <h3 className="text-lg font-bold text-white">Libreta de Clientes</h3>
+                                <p className="text-sm text-slate-400">Cuentas corrientes y saldos fiados</p>
+                            </div>
+                        </button>
+
                         {/* User List from Firestore */}
                         {sellersList.filter(u => u.role === 'seller').map((seller) => (
                              <div 
@@ -1445,12 +1580,20 @@ const App: React.FC = () => {
                                             <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border
                                                 ${sale.paymentMethod === 'Tarjeta Débito/Crédito' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 
                                                   sale.paymentMethod === 'Efectivo' ? 'bg-green-500/10 text-green-400 border-green-500/20' : 
-                                                  'bg-purple-500/10 text-purple-400 border-purple-500/20'}`}
+                                                  sale.paymentMethod === 'Transferencia' ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' :
+                                                  sale.paymentMethod === 'QR' ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20' :
+                                                  'bg-amber-500/10 text-amber-400 border-amber-500/20'}`}
                                             >
                                                 {sale.paymentMethod === 'Tarjeta Débito/Crédito' && <CreditCard size={12} />}
                                                 {sale.paymentMethod === 'Efectivo' && <Banknote size={12} />}
                                                 {sale.paymentMethod === 'Transferencia' && <ArrowRightLeft size={12} />}
-                                                {sale.paymentMethod}
+                                                {sale.paymentMethod === 'QR' && <QrCode size={12} />}
+                                                {sale.paymentMethod === 'Libreta' && <BookOpen size={12} />}
+                                                <span>
+                                                  {sale.paymentMethod === 'Libreta' && sale.customerName 
+                                                    ? `Libreta (${sale.customerName})` 
+                                                    : sale.paymentMethod}
+                                                </span>
                                             </span>
                                         </td>
                                         <td className="p-4 text-right text-white font-mono font-bold">
@@ -1470,6 +1613,17 @@ const App: React.FC = () => {
                     </div>
                 </div>
             </div>
+        )}
+
+        {/* --- View: Customers Management (Admin Only) --- */}
+        {view === 'customers' && (
+            <CustomersManagement 
+                businessId={user?.businessId || currentBusiness?.id || ''}
+                customers={customers}
+                sales={sales}
+                onRefreshCustomers={fetchCustomers}
+                onBack={() => setView('seller_select')}
+            />
         )}
 
         {/* --- Payment Modal --- */}
@@ -1522,6 +1676,30 @@ const App: React.FC = () => {
                                 <span className="text-lg font-medium text-slate-200 group-hover:text-white">Efectivo</span>
                             </div>
                         </button>
+
+                        <button 
+                            onClick={() => finalizeSale('QR')}
+                            className="w-full p-4 bg-black/20 hover:bg-cyan-600/20 border border-white/10 hover:border-cyan-500 rounded-xl flex items-center justify-between group transition-all"
+                        >
+                             <div className="flex items-center gap-3">
+                                <div className="p-2 bg-cyan-500/20 rounded-lg text-cyan-400 group-hover:text-cyan-300">
+                                    <QrCode size={24} />
+                                </div>
+                                <span className="text-lg font-medium text-slate-200 group-hover:text-white">Pago con QR</span>
+                            </div>
+                        </button>
+
+                        <button 
+                            onClick={handleSelectLibretaMethod}
+                            className="w-full p-4 bg-black/20 hover:bg-amber-600/20 border border-white/10 hover:border-amber-500 rounded-xl flex items-center justify-between group transition-all"
+                        >
+                             <div className="flex items-center gap-3">
+                                <div className="p-2 bg-amber-500/20 rounded-lg text-amber-400 group-hover:text-amber-300">
+                                    <BookOpen size={24} />
+                                </div>
+                                <span className="text-lg font-medium text-slate-200 group-hover:text-white">Libreta (Fiado)</span>
+                            </div>
+                        </button>
                     </div>
 
                     <div className="p-4 bg-black/30 border-t border-white/10">
@@ -1531,6 +1709,125 @@ const App: React.FC = () => {
                         >
                             <LogOut size={18} />
                             Cancelar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* --- Libreta Customer Selection Modal (Buscador sin saldos) --- */}
+        {showLibretaModal && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+                <div className="bg-brand-card w-full max-w-md rounded-2xl shadow-2xl border border-white/20 overflow-hidden flex flex-col max-h-[85vh]">
+                    <div className="p-5 border-b border-white/10 bg-amber-500/10 flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                            <div className="p-2 bg-amber-500/20 text-amber-400 rounded-xl">
+                                <BookOpen size={22} />
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-white text-base">Seleccionar Cliente de Libreta</h3>
+                                <p className="text-xs text-brand-text-muted">Total a fiar: ${parseFloat(currentInput).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                            </div>
+                        </div>
+                        <button 
+                            onClick={() => setShowLibretaModal(false)}
+                            className="text-slate-400 hover:text-white p-1"
+                        >
+                            <X size={20} />
+                        </button>
+                    </div>
+
+                    {/* Buscador en tiempo real */}
+                    <div className="p-4 border-b border-white/10">
+                        <div className="relative">
+                            <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
+                                <Search size={18} />
+                            </div>
+                            <input
+                                type="text"
+                                value={customerSearchTerm}
+                                onChange={(e) => setCustomerSearchTerm(e.target.value)}
+                                placeholder="Buscar por nombre o teléfono..."
+                                autoFocus
+                                className="w-full bg-black/30 border border-white/10 rounded-xl py-2.5 pl-10 pr-4 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                            />
+                        </div>
+                    </div>
+
+                    {/* Lista de clientes (Solo nombre y teléfono, sin saldos) */}
+                    <div className="flex-1 overflow-y-auto p-3 space-y-1.5 min-h-[160px]">
+                        {customers
+                            .filter(c => 
+                                c.name.toLowerCase().includes(customerSearchTerm.toLowerCase()) ||
+                                (c.phone && c.phone.includes(customerSearchTerm))
+                            )
+                            .map(cust => {
+                                const isSelected = selectedCustomerId === cust.id;
+                                return (
+                                    <div
+                                        key={cust.id}
+                                        onClick={() => setSelectedCustomerId(cust.id)}
+                                        className={`p-3 rounded-xl cursor-pointer transition-all flex items-center justify-between ${
+                                            isSelected 
+                                                ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/20' 
+                                                : 'bg-black/20 hover:bg-white/5 text-white border border-white/5'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm ${
+                                                isSelected ? 'bg-slate-950/20 text-slate-950' : 'bg-white/10 text-slate-300'
+                                            }`}>
+                                                {cust.name.charAt(0).toUpperCase()}
+                                            </div>
+                                            <div>
+                                                <h4 className="text-sm">{cust.name}</h4>
+                                                {cust.phone && (
+                                                    <p className={`text-xs ${isSelected ? 'text-slate-800' : 'text-slate-400'}`}>
+                                                        {cust.phone}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {isSelected && (
+                                            <CheckCircle2 size={18} className="text-slate-950 shrink-0" />
+                                        )}
+                                    </div>
+                                );
+                            })
+                        }
+
+                        {customers.filter(c => 
+                            c.name.toLowerCase().includes(customerSearchTerm.toLowerCase()) ||
+                            (c.phone && c.phone.includes(customerSearchTerm))
+                        ).length === 0 && (
+                            <div className="p-8 text-center text-slate-400 text-sm">
+                                {customers.length === 0 
+                                    ? "No hay clientes registrados en la libreta. El administrador puede agregarlos desde su sección Clientes." 
+                                    : "No se encontró ningún cliente que coincida con la búsqueda."}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Footer con Confirmar / Cancelar */}
+                    <div className="p-4 bg-black/40 border-t border-white/10 flex gap-3">
+                        <button
+                            onClick={() => setShowLibretaModal(false)}
+                            className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl text-sm transition-all"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            onClick={handleConfirmLibretaSale}
+                            disabled={!selectedCustomerId || isFinalizingLibreta}
+                            className={`flex-1 py-3 font-bold rounded-xl text-sm flex items-center justify-center gap-2 shadow-lg transition-all ${
+                                selectedCustomerId && !isFinalizingLibreta
+                                    ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20'
+                                    : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                            }`}
+                        >
+                            {isFinalizingLibreta ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />}
+                            <span>Guardar en Libreta</span>
                         </button>
                     </div>
                 </div>
