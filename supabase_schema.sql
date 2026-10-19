@@ -7,6 +7,10 @@
 -- 1. EXTENSIÓN PARA UUIDS
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
+-- Eliminar trigger antiguo si existía en la base de datos
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+DROP FUNCTION IF EXISTS public.handle_new_user();
+
 -- 2. TABLA: BUSINESSES (Comercios registrados)
 CREATE TABLE IF NOT EXISTS public.businesses (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -22,19 +26,34 @@ CREATE TABLE IF NOT EXISTS public.businesses (
 CREATE INDEX IF NOT EXISTS idx_businesses_code ON public.businesses(code);
 
 -- 3. TABLA: PROFILES (Superadmins, Dueños de comercio y Cajeros)
+-- Si la tabla profiles ya existía con restricciones viejas, actualizamos la restricción del rol:
+DO $$ 
+BEGIN
+  -- Eliminar constraint viejo si existe
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'profiles_role_check') THEN
+    ALTER TABLE public.profiles DROP CONSTRAINT profiles_role_check;
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   business_id UUID REFERENCES public.businesses(id) ON DELETE CASCADE, -- NULL si es superadmin
   business_code TEXT, -- Código redundante para búsquedas rápidas
-  username TEXT NOT NULL, -- Nombre de usuario visible (ej: 'jose', 'caja1', 'admin')
+  username TEXT, -- Nombre de usuario visible (ej: 'jose', 'caja1', 'admin')
   name TEXT NOT NULL,     -- Nombre completo para mostrar
   email TEXT,             -- Email interno o real
-  role TEXT NOT NULL DEFAULT 'seller' CHECK (role IN ('superadmin', 'business_admin', 'seller')),
-  created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::TEXT, NOW()) NOT NULL,
-  
-  -- Garantizar que dentro de un mismo comercio NO se repita el username:
-  CONSTRAINT unique_username_per_business UNIQUE (business_id, username)
+  role TEXT NOT NULL DEFAULT 'seller',
+  created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::TEXT, NOW()) NOT NULL
 );
+
+-- Asegurar columnas si la tabla ya existía
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS business_id UUID REFERENCES public.businesses(id) ON DELETE CASCADE;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS business_code TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS username TEXT;
+
+-- Aplicar restricción de roles permitidos (incluyendo 'admin' para retrocompatibilidad)
+ALTER TABLE public.profiles ADD CONSTRAINT profiles_role_check 
+  CHECK (role IN ('superadmin', 'business_admin', 'seller', 'admin'));
 
 -- Índices
 CREATE INDEX IF NOT EXISTS idx_profiles_business_id ON public.profiles(business_id);
