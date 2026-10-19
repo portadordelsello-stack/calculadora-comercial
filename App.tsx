@@ -2,38 +2,41 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { supabase, createAdminHelperClient, isSupabaseConfigured } from './supabase';
+import { supabase, createAdminHelperClient, isSupabaseConfigured, buildVirtualEmail } from './supabase';
 import { Display } from './components/Display';
 import { CalculatorButton } from './components/CalculatorButton';
-import { Sale, Operator, PaymentMethod, User } from './types';
-import { Download, History, DollarSign, Trash2, ShoppingBag, User as UserIcon, Banknote, ArrowRightLeft, ShieldCheck, LogOut, ArrowLeft, LogIn, KeyRound, Users, CheckCircle2, AlertTriangle, UserPlus, X, Loader2, Pencil, Save, Mail, AlertCircle, Lock, CreditCard, Palette } from 'lucide-react';
+import { SuperAdminDashboard } from './components/SuperAdminDashboard';
+import { Sale, Operator, PaymentMethod, User, Business } from './types';
+import { Download, History, DollarSign, Trash2, ShoppingBag, User as UserIcon, Banknote, ArrowRightLeft, ShieldCheck, LogOut, ArrowLeft, LogIn, KeyRound, Users, CheckCircle2, AlertTriangle, UserPlus, X, Loader2, Pencil, Save, Mail, AlertCircle, Lock, CreditCard, Palette, Building2, Store } from 'lucide-react';
 
 type ThemeType = 'default' | 'synthwave' | 'retro';
 
 const App: React.FC = () => {
-  // --- Auth State ---
+  // --- Auth & Tenant State ---
   const [user, setUser] = useState<User | null>(null);
+  const [currentBusiness, setCurrentBusiness] = useState<Business | null>(null);
   
-  // Login/Register Form State
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
-  const [emailInput, setEmailInput] = useState('');
+  // Login Form State (Usuario + Clave + Código Comercio)
+  const [businessCodeInput, setBusinessCodeInput] = useState(() => {
+    return localStorage.getItem('comercicalc_business_code') || '';
+  });
+  const [usernameInput, setUsernameInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
-  const [nameInput, setNameInput] = useState(''); // Only for register
   const [authError, setAuthError] = useState('');
   const [isConfigured] = useState(isSupabaseConfigured);
 
   // --- App Views ---
-  const [view, setView] = useState<'login' | 'calculator' | 'sales_log' | 'seller_select'>('login');
+  const [view, setView] = useState<'login' | 'calculator' | 'sales_log' | 'seller_select' | 'superadmin'>('login');
   const [showPaymentModal, setShowPaymentModal] = useState<boolean>(false);
   
   // --- Admin Filter State ---
-  const [selectedSellerFilter, setSelectedSellerFilter] = useState<string | null>(null); // This will now store the UID
-  const [sellersList, setSellersList] = useState<User[]>([]); // List of users for Admin view
+  const [selectedSellerFilter, setSelectedSellerFilter] = useState<string | null>(null); // UID del cajero seleccionado
+  const [sellersList, setSellersList] = useState<User[]>([]); // Lista de cajeros del negocio actual
 
   // --- Create Seller State ---
   const [showCreateSellerModal, setShowCreateSellerModal] = useState(false);
   const [newSellerName, setNewSellerName] = useState('');
-  const [newSellerEmail, setNewSellerEmail] = useState('');
+  const [newSellerUsername, setNewSellerUsername] = useState('');
   const [newSellerPassword, setNewSellerPassword] = useState('');
   const [isCreatingSeller, setIsCreatingSeller] = useState(false);
   const [createSellerError, setCreateSellerError] = useState('');
@@ -110,24 +113,70 @@ const App: React.FC = () => {
         .maybeSingle();
 
       if (profile) {
+        let biz: Business | null = null;
+        if (profile.business_id) {
+          const { data: bizData } = await supabase
+            .from('businesses')
+            .select('*')
+            .eq('id', profile.business_id)
+            .maybeSingle();
+
+          if (bizData) {
+            biz = {
+              id: bizData.id,
+              code: bizData.code,
+              name: bizData.name,
+              plan: bizData.plan,
+              maxSellers: bizData.max_sellers,
+              isActive: bizData.is_active,
+              createdAt: bizData.created_at
+            };
+
+            // Verificar si el comercio está suspendido (para no-superadmins)
+            if (!bizData.is_active && profile.role !== 'superadmin') {
+              await supabase.auth.signOut();
+              setUser(null);
+              setCurrentBusiness(null);
+              setAuthError('Este comercio se encuentra temporalmente suspendido. Comuníquese con la administración.');
+              setView('login');
+              return;
+            }
+          }
+        }
+
+        setCurrentBusiness(biz);
         setUser({
           uid: profile.id,
+          businessId: profile.business_id,
+          businessCode: profile.business_code || biz?.code,
+          businessName: biz?.name,
           email: profile.email || fallbackEmail,
-          username: profile.email || profile.name || fallbackEmail,
+          username: profile.username || profile.email || fallbackEmail,
           role: profile.role,
           name: profile.name
         });
+
+        if (profile.role === 'superadmin') {
+          setView('superadmin');
+        } else {
+          setView(currentView => currentView === 'login' || currentView === 'superadmin' ? 'calculator' : currentView);
+        }
       } else {
-        const isAdminEmail = fallbackEmail.toLowerCase().includes('admin');
+        // Fallback para superadmin o perfiles no migrados
+        const isSuperadmin = fallbackEmail.toLowerCase().includes('superadmin');
         setUser({
           uid,
           email: fallbackEmail,
-          username: fallbackEmail,
-          role: isAdminEmail ? 'admin' : 'seller',
-          name: fallbackEmail.split('@')[0] || 'Usuario'
+          username: fallbackEmail.split('@')[0] || 'admin',
+          role: isSuperadmin ? 'superadmin' : 'business_admin',
+          name: isSuperadmin ? 'Super Administrador' : 'Administrador'
         });
+        if (isSuperadmin) {
+          setView('superadmin');
+        } else {
+          setView(currentView => currentView === 'login' ? 'calculator' : currentView);
+        }
       }
-      setView(currentView => currentView === 'login' ? 'calculator' : currentView);
       setAuthError('');
     } catch (err) {
       console.error('Error cargando perfil:', err);
@@ -147,6 +196,7 @@ const App: React.FC = () => {
         loadUserProfile(session.user.id, session.user.email || '');
       } else {
         setUser(null);
+        setCurrentBusiness(null);
         setView('login');
       }
     });
@@ -157,6 +207,7 @@ const App: React.FC = () => {
         await loadUserProfile(session.user.id, session.user.email || '');
       } else {
         setUser(null);
+        setCurrentBusiness(null);
         setView('login');
       }
     });
@@ -167,14 +218,20 @@ const App: React.FC = () => {
     };
   }, [loadUserProfile]);
 
-  // 2. Sales Data Listener (Real-time with Supabase)
+  // 2. Sales Data Listener (Real-time with Supabase, scoped by business_id)
   const fetchSales = useCallback(async () => {
     if (!user) return;
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('sales')
         .select('*')
         .order('timestamp', { ascending: false });
+
+      if (user.businessId) {
+        query = query.eq('business_id', user.businessId);
+      }
+
+      const { data, error } = await query;
 
       if (error) {
         console.error('Error reading sales:', error);
@@ -184,6 +241,7 @@ const App: React.FC = () => {
       if (data) {
         const mappedSales: Sale[] = data.map(s => ({
           id: s.id,
+          businessId: s.business_id,
           amount: Number(s.amount),
           paymentMethod: s.payment_method as PaymentMethod,
           date: s.date,
@@ -199,7 +257,7 @@ const App: React.FC = () => {
   }, [user]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || user.role === 'superadmin') return;
 
     fetchSales();
 
@@ -219,14 +277,20 @@ const App: React.FC = () => {
     };
   }, [user, fetchSales]);
 
-  // 3. Sellers List Listener (For Admin View)
+  // 3. Sellers List Listener (For Business Admin View)
   const fetchSellers = useCallback(async () => {
-    if (user?.role !== 'admin') return;
+    if (!user || (user.role !== 'business_admin' && (user.role as any) !== 'admin')) return;
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('profiles')
         .select('*')
         .order('name', { ascending: true });
+
+      if (user.businessId) {
+        query = query.eq('business_id', user.businessId);
+      }
+
+      const { data, error } = await query;
 
       if (error) {
         console.error('Error fetching sellers list:', error);
@@ -237,7 +301,9 @@ const App: React.FC = () => {
       if (data) {
         const users: User[] = data.map(p => ({
           uid: p.id,
-          username: p.email || p.id,
+          businessId: p.business_id,
+          businessCode: p.business_code,
+          username: p.username || p.email || p.id,
           email: p.email,
           role: p.role,
           name: p.name || 'Desconocido'
@@ -247,10 +313,11 @@ const App: React.FC = () => {
     } catch (err) {
       console.error('Error in fetchSellers:', err);
     }
-  }, [user?.role]);
+  }, [user]);
 
   useEffect(() => {
-    if (user?.role === 'admin') {
+    const isBizAdmin = user?.role === 'business_admin' || (user?.role as any) === 'admin';
+    if (isBizAdmin) {
       fetchSellers();
 
       const channel = supabase
@@ -268,82 +335,90 @@ const App: React.FC = () => {
         supabase.removeChannel(channel);
       };
     }
-  }, [user?.role, fetchSellers]);
+  }, [user, fetchSellers]);
 
-  // --- Auth Logic ---
+  // --- Auth Logic (Username + Business Code) ---
   
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isConfigured) return;
     setAuthError('');
 
-    try {
-        if (authMode === 'login') {
-            const { error } = await supabase.auth.signInWithPassword({
-                email: emailInput.trim(),
-                password: passwordInput,
-            });
-            if (error) throw error;
-        } else {
-            // REGISTER NEW ADMIN
-            if (!nameInput.trim()) {
-                setAuthError("Por favor ingresa un nombre.");
-                return;
-            }
-            const { data, error } = await supabase.auth.signUp({
-                email: emailInput.trim(),
-                password: passwordInput,
-                options: {
-                    data: {
-                        name: nameInput.trim(),
-                        role: 'admin'
-                    }
-                }
-            });
-            if (error) throw error;
-            if (data.user) {
-                await supabase.from('profiles').upsert({
-                    id: data.user.id,
-                    name: nameInput.trim(),
-                    email: data.user.email,
-                    role: 'admin'
-                });
+    const cleanUsername = usernameInput.trim().toLowerCase();
+    const cleanBizCode = businessCodeInput.trim().toLowerCase();
 
-                if (data.session) {
-                    await loadUserProfile(data.user.id, data.user.email || '');
-                } else {
-                    alert("¡Cuenta de Administrador creada exitosamente! Ya puedes iniciar sesión con tu correo y contraseña.");
-                    setAuthMode('login');
-                }
-            }
-        }
+    if (!cleanUsername) {
+      setAuthError('Por favor ingresa tu nombre de usuario.');
+      return;
+    }
+
+    // Para cualquier usuario que no sea superadmin, el código de comercio es obligatorio
+    if (cleanUsername !== 'superadmin' && !cleanBizCode) {
+      setAuthError('Por favor ingresa el Código de Comercio.');
+      return;
+    }
+
+    const virtualEmail = buildVirtualEmail(cleanUsername, cleanBizCode);
+
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: virtualEmail,
+        password: passwordInput,
+      });
+
+      if (error) throw error;
+
+      // Guardar el código de comercio en localStorage para comodidad
+      if (cleanBizCode) {
+        localStorage.setItem('comercicalc_business_code', cleanBizCode);
+      }
     } catch (error: any) {
-        console.error("Auth error", error);
-        if (error.message?.includes('Invalid login credentials')) {
-            setAuthError('Credenciales incorrectas');
-        } else if (error.message?.includes('User already registered')) {
-            setAuthError('El email ya está registrado');
-        } else if (error.message?.includes('Password should be')) {
-            setAuthError('La contraseña debe tener al menos 6 caracteres');
-        } else {
-            setAuthError(error.message || 'Error de autenticación');
-        }
+      console.error("Auth error", error);
+      if (error.message?.includes('Invalid login credentials')) {
+        setAuthError('Usuario, código de comercio o contraseña incorrectos.');
+      } else {
+        setAuthError(error.message || 'Error de autenticación');
+      }
     }
   };
 
   const handleCreateSeller = async (e: React.FormEvent) => {
       e.preventDefault();
       setCreateSellerError('');
+      
+      if (!currentBusiness && !user?.businessId) {
+        setCreateSellerError('No se encontró el comercio asociado.');
+        return;
+      }
+
+      // Validar límite del plan de cajeros
+      const currentSellersCount = sellersList.filter(s => s.role === 'seller').length;
+      const maxAllowed = currentBusiness?.maxSellers ?? 5;
+      if (currentSellersCount >= maxAllowed) {
+        setCreateSellerError(`Límite alcanzado: Tu plan (${currentBusiness?.plan || 'estándar'}) permite hasta ${maxAllowed} cajeros. Contacta al Superadmin para ampliar.`);
+        return;
+      }
+
+      const cleanUsername = newSellerUsername.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+      if (!cleanUsername) {
+        setCreateSellerError('Ingresa un nombre de usuario válido para el cajero.');
+        return;
+      }
+
+      const bizCode = currentBusiness?.code || user?.businessCode || '';
+      const virtualEmail = buildVirtualEmail(cleanUsername, bizCode);
+
       setIsCreatingSeller(true);
 
       try {
           const helperClient = createAdminHelperClient();
           const { data, error } = await helperClient.auth.signUp({
-              email: newSellerEmail.trim(),
+              email: virtualEmail,
               password: newSellerPassword,
               options: {
                   data: {
                       name: newSellerName.trim(),
+                      username: cleanUsername,
                       role: 'seller'
                   }
               }
@@ -354,27 +429,30 @@ const App: React.FC = () => {
           if (data.user) {
               await supabase.from('profiles').upsert({
                   id: data.user.id,
+                  business_id: currentBusiness?.id || user?.businessId,
+                  business_code: bizCode,
+                  username: cleanUsername,
                   name: newSellerName.trim(),
-                  email: data.user.email,
+                  email: virtualEmail,
                   role: 'seller'
               });
           }
 
-          alert("Vendedor creado exitosamente.");
+          alert("Cajero creado exitosamente.");
           setShowCreateSellerModal(false);
           setNewSellerName('');
-          setNewSellerEmail('');
+          setNewSellerUsername('');
           setNewSellerPassword('');
           fetchSellers();
 
       } catch (error: any) {
           console.error("Error creating seller:", error);
           if (error.message?.includes('already registered')) {
-              setCreateSellerError('El email ya está registrado.');
+              setCreateSellerError('Ese nombre de usuario ya está registrado en este comercio.');
           } else if (error.message?.includes('Password should be')) {
               setCreateSellerError('La contraseña debe tener al menos 6 caracteres.');
           } else {
-              setCreateSellerError(error.message || "Error al crear vendedor.");
+              setCreateSellerError(error.message || "Error al crear cajero.");
           }
       } finally {
           setIsCreatingSeller(false);
@@ -383,15 +461,19 @@ const App: React.FC = () => {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    setEmailInput('');
+    setUsernameInput('');
     setPasswordInput('');
-    setNameInput('');
+    setUser(null);
+    setCurrentBusiness(null);
     handleClear(); 
     setSelectedSellerFilter(null);
+    setView('login');
   };
 
+  const isCurrentAdmin = user?.role === 'business_admin' || (user?.role as any) === 'admin';
+
   const handleProfileClick = () => {
-      if (user?.role === 'admin') {
+      if (isCurrentAdmin) {
           setView('seller_select');
       } else {
           setView('sales_log');
@@ -622,6 +704,7 @@ const App: React.FC = () => {
     
     try {
         const { error } = await supabase.from('sales').insert([{
+            business_id: user.businessId || currentBusiness?.id,
             amount: amount,
             payment_method: method,
             date: new Date().toISOString(),
@@ -647,7 +730,7 @@ const App: React.FC = () => {
   const getVisibleSales = () => {
     if (!user) return [];
     
-    if (user.role === 'admin') {
+    if (isCurrentAdmin) {
       // If a filter is selected, show only that user. Otherwise show all.
       if (selectedSellerFilter) {
           // Compare UID stored in sales with selected UID
@@ -676,7 +759,7 @@ const App: React.FC = () => {
     
     doc.setFontSize(18);
     doc.setTextColor(255, 255, 255);
-    doc.text("ComerciCalc Pro - Reporte de Ventas", 14, 16);
+    doc.text(`ComerciCalc Pro - ${currentBusiness?.name || 'Reporte de Ventas'}`, 14, 16);
 
     // -- Metadata --
     doc.setFontSize(10);
@@ -686,6 +769,8 @@ const App: React.FC = () => {
     let yPos = 35;
     
     doc.text(`Generado: ${dateStr}`, 14, yPos);
+    yPos += 6;
+    doc.text(`Comercio: ${currentBusiness?.name || 'N/A'} (Código: ${currentBusiness?.code || user?.businessCode || 'N/A'})`, 14, yPos);
     yPos += 6;
     doc.text(`Solicitado por: ${user?.name} (${user?.role})`, 14, yPos);
     
@@ -755,28 +840,31 @@ const App: React.FC = () => {
     doc.text(`Total Transacciones: ${visibleSales.length}`, 120, finalY + 20);
 
     // Save
-    const suffix = selectedSellerFilter ? 'filtrado' : (user?.role === 'admin' ? 'reporte_general' : user?.name.replace(/\s+/g, '_'));
-    doc.save(`ventas_${suffix}_${new Date().toISOString().split('T')[0]}.pdf`);
+    const suffix = selectedSellerFilter ? 'filtrado' : (isCurrentAdmin ? 'reporte_general' : user?.name.replace(/\s+/g, '_'));
+    doc.save(`ventas_${currentBusiness?.code || 'comercio'}_${suffix}_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
   const clearHistory = async () => {
-    if (user?.role !== 'admin') {
-      alert("Solo el administrador puede borrar el historial completo.");
+    if (!isCurrentAdmin) {
+      alert("Solo el administrador del comercio puede borrar el historial.");
       return;
     }
     
     const msg = selectedSellerFilter 
-        ? `¿Estás seguro de que deseas borrar el historial de ventas de este usuario DE LA NUBE?`
-        : "¿ATENCIÓN: Estás seguro de que deseas borrar TODO el historial de ventas de TODOS los usuarios DE LA NUBE?";
+        ? `¿Estás seguro de que deseas borrar el historial de ventas de este cajero?`
+        : `¿ATENCIÓN: Estás seguro de que deseas borrar TODO el historial de ventas de este comercio (${currentBusiness?.name})?`;
 
     if(confirm(msg)) {
         try {
             let error;
             if (selectedSellerFilter) {
-                const res = await supabase.from('sales').delete().eq('user_id', selectedSellerFilter);
+                const res = await supabase.from('sales').delete()
+                  .eq('user_id', selectedSellerFilter)
+                  .eq('business_id', user?.businessId || currentBusiness?.id);
                 error = res.error;
             } else {
-                const res = await supabase.from('sales').delete().neq('date', '');
+                const res = await supabase.from('sales').delete()
+                  .eq('business_id', user?.businessId || currentBusiness?.id);
                 error = res.error;
             }
 
@@ -790,8 +878,15 @@ const App: React.FC = () => {
     }
   };
 
-  // --- RENDER: LOGIN / REGISTER VIEW ---
+  // --- RENDER: SUPERADMIN DASHBOARD ---
+  if (view === 'superadmin' || user?.role === 'superadmin') {
+    return <SuperAdminDashboard onLogout={handleLogout} />;
+  }
+
+  // --- RENDER: LOGIN VIEW (USUARIO + COMERCIO + CLAVE) ---
   if (view === 'login' || !user) {
+    const isSuperadminMode = usernameInput.trim().toLowerCase() === 'superadmin';
+
     return (
       <div className="h-full w-full flex flex-col items-center justify-center bg-brand-dark p-6 animate-fade-in relative overflow-hidden">
         {/* Decorative Background Elements */}
@@ -803,7 +898,7 @@ const App: React.FC = () => {
                 <AlertTriangle className="shrink-0" />
                 <div>
                     <h3 className="font-bold">Falta Configuración Supabase</h3>
-                    <p className="text-sm">Configura las variables <code>VITE_SUPABASE_URL</code> y <code>VITE_SUPABASE_ANON_KEY</code> en tu archivo <code>.env</code> con las credenciales de tu proyecto en Supabase.</p>
+                    <p className="text-sm">Configura las variables <code>VITE_SUPABASE_URL</code> y <code>VITE_SUPABASE_ANON_KEY</code> en tu archivo <code>.env</code>.</p>
                 </div>
             </div>
         )}
@@ -811,58 +906,63 @@ const App: React.FC = () => {
         <div className="w-full max-w-sm bg-brand-card border border-slate-700 p-8 rounded-3xl shadow-2xl relative z-10 transition-all">
           <div className="flex flex-col items-center mb-6">
             <div className="bg-slate-800 p-4 rounded-2xl mb-4 shadow-inner ring-1 ring-slate-700">
-               {authMode === 'login' ? (
-                   <ShoppingBag className="text-brand-accent w-10 h-10" />
+               {isSuperadminMode ? (
+                   <ShieldCheck className="text-purple-400 w-10 h-10" />
                ) : (
-                   <UserPlus className="text-brand-push w-10 h-10" />
+                   <Store className="text-brand-accent w-10 h-10" />
                )}
             </div>
             <h1 className="text-2xl font-bold text-white">ComerciCalc Pro</h1>
             <p className="text-slate-400 text-sm">
-                {authMode === 'login' ? 'Portal de Acceso (Nube)' : 'Crear Admin del Sistema'}
+                {isSuperadminMode ? 'Panel Maestro DevTech' : 'Punto de Venta Multi-Comercio'}
             </p>
           </div>
 
           <form onSubmit={handleAuthSubmit} className="space-y-4">
             
-            {/* Show Name input only in Register mode */}
-            {authMode === 'register' && (
-                <div className="space-y-2 animate-fade-in">
-                    <label className="text-xs uppercase tracking-wider text-slate-500 font-semibold ml-1">Tu Nombre</label>
-                    <div className="relative">
-                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
-                        <UserIcon size={18} />
-                        </div>
-                        <input 
-                        type="text" 
-                        value={nameInput}
-                        onChange={(e) => setNameInput(e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-4 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-push/50 transition-all"
-                        placeholder="Ej. Juan Pérez"
-                        required
-                        />
-                    </div>
+            {/* Campo Código de Comercio (Oculto solo si es superadmin) */}
+            {!isSuperadminMode && (
+              <div className="space-y-2 animate-fade-in">
+                <label className="text-xs uppercase tracking-wider text-slate-500 font-semibold ml-1 flex items-center justify-between">
+                  <span>Código de Comercio</span>
+                  <span className="text-[10px] text-slate-600 font-normal">Identificador único</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
+                    <Building2 size={18} />
+                  </div>
+                  <input 
+                    type="text" 
+                    value={businessCodeInput}
+                    onChange={(e) => setBusinessCodeInput(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-4 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-accent/50 transition-all font-mono"
+                    placeholder="ej: panaderia, dontito"
+                    required={!isSuperadminMode}
+                  />
                 </div>
+              </div>
             )}
 
+            {/* Campo Usuario */}
             <div className="space-y-2">
-              <label className="text-xs uppercase tracking-wider text-slate-500 font-semibold ml-1">Email</label>
+              <label className="text-xs uppercase tracking-wider text-slate-500 font-semibold ml-1">Nombre de Usuario</label>
               <div className="relative">
                 <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
                   <UserIcon size={18} />
                 </div>
                 <input 
-                  type="email" 
-                  value={emailInput}
-                  onChange={(e) => setEmailInput(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-4 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-push/50 transition-all"
-                  placeholder="admin@ejemplo.com"
+                  type="text" 
+                  value={usernameInput}
+                  onChange={(e) => setUsernameInput(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-10 pr-4 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-push/50 transition-all font-mono"
+                  placeholder="ej: admin, jose, caja1"
                   autoFocus
                   required
                 />
               </div>
             </div>
 
+            {/* Campo Contraseña */}
             <div className="space-y-2">
               <label className="text-xs uppercase tracking-wider text-slate-500 font-semibold ml-1">Contraseña</label>
               <div className="relative">
@@ -891,32 +991,34 @@ const App: React.FC = () => {
               disabled={!isConfigured}
               className={`w-full font-bold py-3.5 rounded-xl transition-all shadow-lg mt-2 flex items-center justify-center gap-2
                   ${isConfigured 
-                      ? (authMode === 'login' ? 'bg-brand-push hover:bg-indigo-500 text-white shadow-indigo-500/20' : 'bg-brand-accent hover:bg-emerald-500 text-brand-dark shadow-emerald-500/20')
+                      ? (isSuperadminMode ? 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-600/30' : 'bg-brand-accent hover:bg-emerald-500 text-brand-dark shadow-emerald-500/20')
                       : 'bg-slate-700 text-slate-400 cursor-not-allowed'}`}
             >
-              {authMode === 'login' ? <LogIn size={20} /> : <UserPlus size={20} />}
-              {authMode === 'login' ? 'Ingresar' : 'Crear Admin'}
+              <LogIn size={20} />
+              {isSuperadminMode ? 'Ingresar como Superadmin' : 'Ingresar al Comercio'}
             </button>
 
             <div className="text-center pt-2">
               <button
                 type="button"
                 onClick={() => {
-                  setAuthMode(authMode === 'login' ? 'register' : 'login');
+                  if (usernameInput === 'superadmin') {
+                    setUsernameInput('');
+                  } else {
+                    setUsernameInput('superadmin');
+                  }
                   setAuthError('');
                 }}
-                className="text-xs text-brand-accent hover:underline transition-all"
+                className="text-xs text-slate-400 hover:text-white transition-all flex items-center justify-center gap-1 mx-auto"
               >
-                {authMode === 'login' 
-                  ? '¿Primer acceso? Crear cuenta de Administrador' 
-                  : '¿Ya tienes cuenta? Iniciar Sesión'}
+                {isSuperadminMode ? '← Volver al acceso para comercios' : '¿Eres Superadministrador? Click aquí'}
               </button>
             </div>
           </form>
 
           <div className="mt-4 pt-6 border-t border-slate-800 text-center">
              <p className="text-[10px] text-slate-600 uppercase tracking-widest font-bold">
-               ComerciCalc Pro v1.2
+               ComerciCalc Pro SaaS • DevTech
              </p>
           </div>
         </div>
@@ -935,8 +1037,17 @@ const App: React.FC = () => {
             <ShoppingBag className="text-brand-dark w-5 h-5" />
           </div>
           <div>
-             <h1 className="text-lg font-bold text-white leading-none hidden md:block">ComerciCalc Pro</h1>
-             <h1 className="text-lg font-bold text-white leading-none md:hidden">PV</h1>
+             <h1 className="text-lg font-bold text-white leading-none hidden md:block">
+               {currentBusiness?.name || 'ComerciCalc Pro'}
+             </h1>
+             <h1 className="text-lg font-bold text-white leading-none md:hidden">
+               {currentBusiness?.name ? currentBusiness.name.slice(0, 10) : 'PV'}
+             </h1>
+             {currentBusiness?.code && (
+               <span className="text-[10px] text-slate-400 font-mono tracking-wider">
+                 #{currentBusiness.code}
+               </span>
+             )}
           </div>
         </div>
 
@@ -945,7 +1056,7 @@ const App: React.FC = () => {
             {view === 'sales_log' ? (
                 <button 
                   onClick={() => {
-                      if (user.role === 'admin') {
+                      if (isCurrentAdmin) {
                           setView('seller_select');
                       } else {
                           setView('calculator');
@@ -969,9 +1080,9 @@ const App: React.FC = () => {
                 <button 
                   onClick={handleProfileClick}
                   className={`flex items-center gap-2 px-3 py-2 rounded-lg text-slate-200 transition-colors border border-white/10 
-                    ${user.role === 'admin' ? 'bg-brand-card hover:bg-slate-700' : 'bg-brand-card hover:bg-slate-700'}`}
+                    ${isCurrentAdmin ? 'bg-brand-card hover:bg-slate-700' : 'bg-brand-card hover:bg-slate-700'}`}
                 >
-                  <UserIcon size={16} className={user.role === 'admin' ? 'text-brand-accent' : 'text-blue-400'} />
+                  <UserIcon size={16} className={isCurrentAdmin ? 'text-brand-accent' : 'text-blue-400'} />
                   <span className="font-medium max-w-[100px] truncate">{user.name}</span>
                 </button>
             )}
@@ -1180,9 +1291,9 @@ const App: React.FC = () => {
                 <div className="bg-brand-card rounded-3xl shadow-xl flex flex-col border border-white/10 min-h-[500px]">
                     <div className="p-4 md:p-6 border-b border-white/10 bg-black/20 flex flex-col md:flex-row justify-between items-center gap-4">
                         <div className="flex items-center gap-2 text-slate-200 self-start md:self-center">
-                            <History size={20} className={user.role === 'admin' ? "text-brand-accent" : "text-blue-400"} />
+                            <History size={20} className={isCurrentAdmin ? "text-brand-accent" : "text-blue-400"} />
                             <h2 className="font-semibold text-lg">
-                              {user.role === 'admin' 
+                              {isCurrentAdmin 
                                 ? (selectedSellerFilter 
                                     ? `Ventas filtradas` 
                                     : 'Registro General (Cloud)')
@@ -1203,7 +1314,7 @@ const App: React.FC = () => {
                                 <Download size={18} />
                                 <span>PUSH (PDF)</span>
                             </button>
-                            {user.role === 'admin' && (
+                            {isCurrentAdmin && (
                               <button 
                                   onClick={clearHistory}
                                   className="flex items-center justify-center gap-2 px-3 py-2 bg-brand-danger/10 hover:bg-brand-danger/20 text-brand-danger rounded-lg transition-colors text-sm font-medium border border-brand-danger/20"
@@ -1218,8 +1329,8 @@ const App: React.FC = () => {
                     {/* Stats */}
                     <div className="grid grid-cols-1 md:grid-cols-2 border-b border-white/10">
                          <div className="p-6 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-white/10">
-                            <span className="text-slate-400 text-sm font-medium uppercase tracking-widest mb-1">Total {user.role === 'admin' && !selectedSellerFilter ? 'General' : 'Personal'}</span>
-                            <div className={`flex items-start ${user.role === 'admin' ? 'text-brand-accent' : 'text-blue-400'}`}>
+                            <span className="text-slate-400 text-sm font-medium uppercase tracking-widest mb-1">Total {isCurrentAdmin && !selectedSellerFilter ? 'General' : 'Personal'}</span>
+                            <div className={`flex items-start ${isCurrentAdmin ? 'text-brand-accent' : 'text-blue-400'}`}>
                                 <DollarSign size={24} className="mt-2" />
                                 <span className="text-4xl md:text-5xl font-bold font-mono">{totalSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                             </div>
@@ -1237,7 +1348,7 @@ const App: React.FC = () => {
                                 <tr className="text-slate-400 text-xs uppercase border-b border-white/10 bg-black/20">
                                     <th className="p-4 font-medium">Hora / Fecha</th>
                                     {/* Only show "Vendedor" column if Admin is viewing ALL sales */}
-                                    {user.role === 'admin' && !selectedSellerFilter && <th className="p-4 font-medium">Vendedor</th>}
+                                    {isCurrentAdmin && !selectedSellerFilter && <th className="p-4 font-medium">Vendedor</th>}
                                     <th className="p-4 font-medium">Método Pago</th>
                                     <th className="p-4 font-medium text-right">Monto</th>
                                 </tr>
@@ -1251,7 +1362,7 @@ const App: React.FC = () => {
                                               <span className="text-xs text-slate-500">{new Date(sale.date).toLocaleDateString()}</span>
                                             </div>
                                         </td>
-                                        {user.role === 'admin' && !selectedSellerFilter && (
+                                        {isCurrentAdmin && !selectedSellerFilter && (
                                           <td className="p-4">
                                             <div className="flex items-center gap-2">
                                               <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-xs text-slate-300 border border-white/10">
@@ -1280,7 +1391,7 @@ const App: React.FC = () => {
                                 ))}
                                 {visibleSales.length === 0 && (
                                     <tr>
-                                        <td colSpan={user.role === 'admin' && !selectedSellerFilter ? 4 : 3} className="p-12 text-center text-slate-500">
+                                        <td colSpan={isCurrentAdmin && !selectedSellerFilter ? 4 : 3} className="p-12 text-center text-slate-500">
                                             No hay registros de ventas para mostrar.
                                         </td>
                                     </tr>
@@ -1395,21 +1506,24 @@ const App: React.FC = () => {
                         </div>
 
                         <div className="space-y-2">
-                            <label className="text-xs uppercase tracking-wider text-slate-500 font-semibold ml-1">Email (Acceso)</label>
+                            <label className="text-xs uppercase tracking-wider text-slate-500 font-semibold ml-1">Usuario del Cajero</label>
                             <div className="relative">
                                 <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
                                     <UserIcon size={18} />
                                 </div>
                                 <input 
-                                    type="email" 
-                                    value={newSellerEmail}
-                                    onChange={(e) => setNewSellerEmail(e.target.value)}
-                                    className="w-full bg-black/20 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-accent/50 transition-all"
-                                    placeholder="vendedor@empresa.com"
+                                    type="text" 
+                                    value={newSellerUsername}
+                                    onChange={(e) => setNewSellerUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
+                                    className="w-full bg-black/20 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-brand-accent/50 transition-all font-mono"
+                                    placeholder="ej: jose, caja1"
                                     required
                                     disabled={isCreatingSeller}
                                 />
                             </div>
+                            <p className="text-[11px] text-slate-500 ml-1">
+                                El cajero ingresará con este usuario y el código <strong>{currentBusiness?.code || user?.businessCode}</strong>
+                            </p>
                         </div>
 
                         <div className="space-y-2">

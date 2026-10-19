@@ -1,35 +1,68 @@
 -- ==============================================================================
--- COMERCICALC PRO - SUPABASE DATABASE SCHEMA
+-- COMERCICALC PRO - SUPABASE SAAS MULTI-TENANT SCHEMA (v3)
 -- ==============================================================================
 -- Ejecuta este script en el "SQL Editor" de tu panel de Supabase.
 -- ==============================================================================
 
--- 1. TABLA: PROFILES (Roles y nombres de empleados / admins)
-CREATE TABLE IF NOT EXISTS public.profiles (
-  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  email TEXT,
-  role TEXT NOT NULL DEFAULT 'seller' CHECK (role IN ('admin', 'seller')),
+-- 1. EXTENSIÓN PARA UUIDS
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- 2. TABLA: BUSINESSES (Comercios registrados)
+CREATE TABLE IF NOT EXISTS public.businesses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code TEXT UNIQUE NOT NULL, -- Código único del comercio (ej. 'panaderia', 'dontito')
+  name TEXT NOT NULL,         -- Nombre público del negocio (ej. 'Panadería San Cayetano')
+  plan TEXT NOT NULL DEFAULT 'estandar' CHECK (plan IN ('basico', 'estandar', 'pro', 'custom')),
+  max_sellers INT NOT NULL DEFAULT 5, -- Límite de cajeros permitidos
+  is_active BOOLEAN NOT NULL DEFAULT true, -- Interruptor activo / suspendido
   created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::TEXT, NOW()) NOT NULL
 );
 
--- 2. TABLA: SALES (Historial de ventas de la calculadora)
+-- Índices
+CREATE INDEX IF NOT EXISTS idx_businesses_code ON public.businesses(code);
+
+-- 3. TABLA: PROFILES (Superadmins, Dueños de comercio y Cajeros)
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  business_id UUID REFERENCES public.businesses(id) ON DELETE CASCADE, -- NULL si es superadmin
+  business_code TEXT, -- Código redundante para búsquedas rápidas
+  username TEXT NOT NULL, -- Nombre de usuario visible (ej: 'jose', 'caja1', 'admin')
+  name TEXT NOT NULL,     -- Nombre completo para mostrar
+  email TEXT,             -- Email interno o real
+  role TEXT NOT NULL DEFAULT 'seller' CHECK (role IN ('superadmin', 'business_admin', 'seller')),
+  created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::TEXT, NOW()) NOT NULL,
+  
+  -- Garantizar que dentro de un mismo comercio NO se repita el username:
+  CONSTRAINT unique_username_per_business UNIQUE (business_id, username)
+);
+
+-- Índices
+CREATE INDEX IF NOT EXISTS idx_profiles_business_id ON public.profiles(business_id);
+CREATE INDEX IF NOT EXISTS idx_profiles_role ON public.profiles(role);
+
+-- 4. TABLA: SALES (Historial de ventas de la calculadora)
 CREATE TABLE IF NOT EXISTS public.sales (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_id UUID NOT NULL REFERENCES public.businesses(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  user_name TEXT NOT NULL,
   amount NUMERIC(12, 2) NOT NULL,
   payment_method TEXT NOT NULL,
   date TEXT NOT NULL,
   timestamp BIGINT NOT NULL,
-  user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
-  user_name TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::TEXT, NOW()) NOT NULL
 );
 
--- Índices para búsquedas rápidas
+-- Índices
+CREATE INDEX IF NOT EXISTS idx_sales_business_id ON public.sales(business_id);
 CREATE INDEX IF NOT EXISTS idx_sales_timestamp ON public.sales(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_sales_user_id ON public.sales(user_id);
 
--- 3. FUNCIÓN Y TRIGGER: CREAR PERFIL Y CONFIRMAR AUTOMÁTICAMENTE
+-- ==============================================================================
+-- 5. FUNCIONES AUXILIARES DE SEGURIDAD (RLS HELPERS)
+-- ==============================================================================
+
+-- Función para auto-confirmar emails creados internamente
 CREATE OR REPLACE FUNCTION public.auto_confirm_user()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -43,84 +76,133 @@ CREATE TRIGGER on_auth_user_auto_confirm
   BEFORE INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.auto_confirm_user();
 
--- Confirmar usuarios ya creados que estén pendientes:
+-- Confirmar usuarios existentes pendientes
 UPDATE auth.users
 SET email_confirmed_at = now()
 WHERE email_confirmed_at IS NULL;
 
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-  INSERT INTO public.profiles (id, name, email, role)
-  VALUES (
-    NEW.id,
-    COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1), 'Usuario'),
-    NEW.email,
-    COALESCE(NEW.raw_user_meta_data->>'role', 'seller')
-  )
-  ON CONFLICT (id) DO UPDATE SET
-    name = EXCLUDED.name,
-    email = EXCLUDED.email;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
-
--- 4. FUNCIÓN AUXILIAR: VERIFICAR SI EL USUARIO ES ADMIN
-CREATE OR REPLACE FUNCTION public.is_admin()
+-- Función para verificar si el usuario conectado es SUPERADMIN
+CREATE OR REPLACE FUNCTION public.is_superadmin()
 RETURNS BOOLEAN AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.profiles
-    WHERE id = auth.uid() AND role = 'admin'
+    WHERE id = auth.uid() AND role = 'superadmin'
   );
 $$ LANGUAGE sql SECURITY DEFINER STABLE;
 
--- 5. HABILITAR ROW LEVEL SECURITY (RLS)
+-- Función para verificar si el usuario conectado es ADMIN DE SU NEGOCIO
+CREATE OR REPLACE FUNCTION public.is_business_admin()
+RETURNS BOOLEAN AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = auth.uid() AND role = 'business_admin'
+  );
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+-- Función para obtener el business_id del usuario conectado
+CREATE OR REPLACE FUNCTION public.current_business_id()
+RETURNS UUID AS $$
+  SELECT business_id FROM public.profiles WHERE id = auth.uid();
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+-- ==============================================================================
+-- 6. HABILITAR ROW LEVEL SECURITY (RLS)
+-- ==============================================================================
+ALTER TABLE public.businesses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sales ENABLE ROW LEVEL SECURITY;
 
+-- ------------------------------------------------------------------------------
+-- POLÍTICAS RLS: BUSINESSES
+-- ------------------------------------------------------------------------------
+DROP POLICY IF EXISTS "Superadmin control total comercios" ON public.businesses;
+CREATE POLICY "Superadmin control total comercios" ON public.businesses
+  FOR ALL TO authenticated
+  USING (public.is_superadmin())
+  WITH CHECK (public.is_superadmin());
+
+DROP POLICY IF EXISTS "Comercio puede leer su propio negocio" ON public.businesses;
+CREATE POLICY "Comercio puede leer su propio negocio" ON public.businesses
+  FOR SELECT TO authenticated
+  USING (id = public.current_business_id());
+
+DROP POLICY IF EXISTS "Lectura anonima de negocios activos para login" ON public.businesses;
+CREATE POLICY "Lectura anonima de negocios activos para login" ON public.businesses
+  FOR SELECT TO anon
+  USING (is_active = true);
+
+-- ------------------------------------------------------------------------------
 -- POLÍTICAS RLS: PROFILES
-DROP POLICY IF EXISTS "Ver perfiles" ON public.profiles;
-CREATE POLICY "Ver perfiles" ON public.profiles
-  FOR SELECT TO authenticated
-  USING (auth.uid() = id OR public.is_admin());
+-- ------------------------------------------------------------------------------
+DROP POLICY IF EXISTS "Superadmin control total perfiles" ON public.profiles;
+CREATE POLICY "Superadmin control total perfiles" ON public.profiles
+  FOR ALL TO authenticated
+  USING (public.is_superadmin())
+  WITH CHECK (public.is_superadmin());
 
-DROP POLICY IF EXISTS "Actualizar perfil propio o admin" ON public.profiles;
-CREATE POLICY "Actualizar perfil propio o admin" ON public.profiles
+DROP POLICY IF EXISTS "Ver perfiles del mismo comercio" ON public.profiles;
+CREATE POLICY "Ver perfiles del mismo comercio" ON public.profiles
+  FOR SELECT TO authenticated
+  USING (
+    business_id = public.current_business_id()
+    OR id = auth.uid()
+  );
+
+DROP POLICY IF EXISTS "Admin comercio gestiona perfiles de su negocio" ON public.profiles;
+CREATE POLICY "Admin comercio gestiona perfiles de su negocio" ON public.profiles
+  FOR ALL TO authenticated
+  USING (
+    public.is_business_admin() AND business_id = public.current_business_id()
+  )
+  WITH CHECK (
+    public.is_business_admin() AND business_id = public.current_business_id()
+  );
+
+DROP POLICY IF EXISTS "Usuario actualiza su propio perfil" ON public.profiles;
+CREATE POLICY "Usuario actualiza su propio perfil" ON public.profiles
   FOR UPDATE TO authenticated
-  USING (auth.uid() = id OR public.is_admin())
-  WITH CHECK (auth.uid() = id OR public.is_admin());
+  USING (id = auth.uid())
+  WITH CHECK (id = auth.uid());
 
-DROP POLICY IF EXISTS "Eliminar perfil solo admin" ON public.profiles;
-CREATE POLICY "Eliminar perfil solo admin" ON public.profiles
-  FOR DELETE TO authenticated
-  USING (public.is_admin());
-
-DROP POLICY IF EXISTS "Insertar perfiles admin o trigger" ON public.profiles;
-CREATE POLICY "Insertar perfiles admin o trigger" ON public.profiles
-  FOR INSERT TO authenticated
-  WITH CHECK (auth.uid() = id OR public.is_admin());
-
+-- ------------------------------------------------------------------------------
 -- POLÍTICAS RLS: SALES
-DROP POLICY IF EXISTS "Ver ventas propias o admin" ON public.sales;
-CREATE POLICY "Ver ventas propias o admin" ON public.sales
+-- ------------------------------------------------------------------------------
+DROP POLICY IF EXISTS "Superadmin control total ventas" ON public.sales;
+CREATE POLICY "Superadmin control total ventas" ON public.sales
+  FOR ALL TO authenticated
+  USING (public.is_superadmin())
+  WITH CHECK (public.is_superadmin());
+
+DROP POLICY IF EXISTS "Ver ventas de su propio negocio" ON public.sales;
+CREATE POLICY "Ver ventas de su propio negocio" ON public.sales
   FOR SELECT TO authenticated
-  USING (auth.uid() = user_id OR public.is_admin());
+  USING (
+    business_id = public.current_business_id()
+    AND (
+      public.is_business_admin() 
+      OR user_id = auth.uid()
+    )
+  );
 
-DROP POLICY IF EXISTS "Registrar ventas" ON public.sales;
-CREATE POLICY "Registrar ventas" ON public.sales
+DROP POLICY IF EXISTS "Insertar ventas con business_id propio" ON public.sales;
+CREATE POLICY "Insertar ventas con business_id propio" ON public.sales
   FOR INSERT TO authenticated
-  WITH CHECK (auth.uid() = user_id);
+  WITH CHECK (
+    business_id = public.current_business_id()
+    AND user_id = auth.uid()
+  );
 
-DROP POLICY IF EXISTS "Borrar ventas solo admin" ON public.sales;
-CREATE POLICY "Borrar ventas solo admin" ON public.sales
+DROP POLICY IF EXISTS "Admin borra ventas de su propio negocio" ON public.sales;
+CREATE POLICY "Admin borra ventas de su propio negocio" ON public.sales
   FOR DELETE TO authenticated
-  USING (public.is_admin());
+  USING (
+    public.is_business_admin() 
+    AND business_id = public.current_business_id()
+  );
 
--- 6. HABILITAR PUBLICACIÓN EN TIEMPO REAL (REALTIME)
-ALTER PUBLICATION supabase_realtime ADD TABLE public.sales;
+-- ==============================================================================
+-- 7. HABILITAR PUBLICACIÓN EN TIEMPO REAL (REALTIME)
+-- ==============================================================================
+ALTER PUBLICATION supabase_realtime ADD TABLE public.businesses;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.profiles;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.sales;

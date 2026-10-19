@@ -1,17 +1,36 @@
 export type PaymentMethod = 'Tarjeta Débito/Crédito' | 'Transferencia' | 'Efectivo';
 
-export type UserRole = 'admin' | 'seller';
+export type UserRole = 'superadmin' | 'business_admin' | 'seller';
+
+export type BusinessPlan = 'basico' | 'estandar' | 'pro' | 'custom';
+
+export interface Business {
+  id: string;
+  code: string; // ej: 'dontito', 'panaderia'
+  name: string; // ej: 'Panadería San Cayetano'
+  plan: BusinessPlan;
+  maxSellers: number;
+  isActive: boolean;
+  createdAt?: string;
+  // Campos calculados
+  sellerCount?: number;
+  totalSales?: number;
+}
 
 export interface User {
-  uid: string;      // Firebase Auth UID
-  email?: string;   // Optional email
-  username: string; // Display identifier (fallback)
+  uid: string;
+  businessId?: string | null;
+  businessCode?: string | null;
+  businessName?: string | null;
+  username: string; // ej: 'jose', 'caja1', 'admin'
+  name: string;     // ej: 'José Pérez'
+  email?: string;
   role: UserRole;
-  name: string;
 }
 
 export interface Sale {
   id: string;
+  businessId: string;
   amount: number;
   paymentMethod: PaymentMethod;
   date: string; // ISO string

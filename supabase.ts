@@ -15,8 +15,8 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   }
 });
 
-// Secondary client used by Admin to create new seller accounts
-// without overwriting the currently logged in Admin session.
+// Cliente auxiliar para crear usuarios (admins o cajeros)
+// sin sobrescribir la sesión actual del Superadmin o Dueño
 export const createAdminHelperClient = () => {
   return createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
@@ -24,4 +24,18 @@ export const createAdminHelperClient = () => {
       autoRefreshToken: false,
     }
   });
+};
+
+/**
+ * Convierte un nombre de usuario y código de comercio en un identificador único seguro.
+ * Para superadmin (sin código de comercio): superadmin@devtech.internal
+ * Para usuarios de comercio: {username}_{businessCode}@devtech.internal
+ */
+export const buildVirtualEmail = (username: string, businessCode?: string | null): string => {
+  const cleanUser = username.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  if (!businessCode || businessCode.trim() === '' || cleanUser === 'superadmin') {
+    return `${cleanUser}@devtech.internal`;
+  }
+  const cleanCode = businessCode.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  return `${cleanUser}_${cleanCode}@devtech.internal`;
 };
