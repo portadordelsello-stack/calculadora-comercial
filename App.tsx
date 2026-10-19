@@ -9,7 +9,7 @@ import { SuperAdminDashboard } from './components/SuperAdminDashboard';
 import { Sale, Operator, PaymentMethod, User, Business } from './types';
 import { Download, History, DollarSign, Trash2, ShoppingBag, User as UserIcon, Banknote, ArrowRightLeft, ShieldCheck, LogOut, ArrowLeft, LogIn, KeyRound, Users, CheckCircle2, AlertTriangle, UserPlus, X, Loader2, Pencil, Save, Mail, AlertCircle, Lock, CreditCard, Palette, Building2, Store } from 'lucide-react';
 
-type ThemeType = 'default' | 'synthwave' | 'retro';
+type ThemeType = 'default' | 'light-clean' | 'nordic-frost' | 'synthwave' | 'retro' | 'midnight';
 
 const App: React.FC = () => {
   // --- Auth & Tenant State ---
@@ -54,8 +54,11 @@ const App: React.FC = () => {
   const [changePasswordError, setChangePasswordError] = useState('');
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
-  // --- Theme State ---
-  const [theme, setTheme] = useState<ThemeType>('default');
+  // --- Theme State (Inicializado inmediatamente de localStorage) ---
+  const [theme, setTheme] = useState<ThemeType>(() => {
+    const saved = localStorage.getItem('comercicalc-theme') as ThemeType;
+    return saved || 'default';
+  });
   const [showThemeMenu, setShowThemeMenu] = useState(false);
   const themeMenuRef = useRef<HTMLDivElement>(null);
 
@@ -71,25 +74,25 @@ const App: React.FC = () => {
   // --- Sales Data State ---
   const [sales, setSales] = useState<Sale[]>([]);
 
-  // --- THEME LOGIC ---
-  useEffect(() => {
-      // Apply theme to document root
-      if (theme === 'default') {
-          document.documentElement.removeAttribute('data-theme');
-      } else {
-          document.documentElement.setAttribute('data-theme', theme);
-      }
-      // Optional: Save to local storage
-      localStorage.setItem('comercicalc-theme', theme);
-  }, [theme]);
+  // --- THEME LOGIC: Aplica y guarda el tema de forma garantizada ---
+  const changeTheme = (newTheme: ThemeType) => {
+    setTheme(newTheme);
+    localStorage.setItem('comercicalc-theme', newTheme);
+    if (newTheme === 'default') {
+      document.documentElement.removeAttribute('data-theme');
+    } else {
+      document.documentElement.setAttribute('data-theme', newTheme);
+    }
+  };
 
-  // Load theme from storage
   useEffect(() => {
-      const savedTheme = localStorage.getItem('comercicalc-theme') as ThemeType;
-      if (savedTheme) {
-          setTheme(savedTheme);
-      }
-  }, []);
+    // Aplicar al montar o al cambiar estado
+    if (theme === 'default') {
+      document.documentElement.removeAttribute('data-theme');
+    } else {
+      document.documentElement.setAttribute('data-theme', theme);
+    }
+  }, [theme]);
 
   // Close theme menu on click outside
   useEffect(() => {
@@ -1048,14 +1051,14 @@ const App: React.FC = () => {
             <ShoppingBag className="text-brand-dark w-5 h-5" />
           </div>
           <div>
-             <h1 className="text-lg font-bold text-white leading-none hidden md:block">
+             <h1 className="text-lg font-bold text-brand-text-main leading-none hidden md:block">
                {currentBusiness?.name || 'ComerciCalc Pro'}
              </h1>
-             <h1 className="text-lg font-bold text-white leading-none md:hidden">
+             <h1 className="text-lg font-bold text-brand-text-main leading-none md:hidden">
                {currentBusiness?.name ? currentBusiness.name.slice(0, 10) : 'PV'}
              </h1>
              {currentBusiness?.code && (
-               <span className="text-[10px] text-slate-400 font-mono tracking-wider">
+               <span className="text-[10px] text-brand-text-muted font-mono tracking-wider">
                  #{currentBusiness.code}
                </span>
              )}
@@ -1073,7 +1076,7 @@ const App: React.FC = () => {
                           setView('calculator');
                       }
                   }}
-                  className="flex items-center gap-2 px-3 py-2 bg-slate-800/50 hover:bg-slate-700 rounded-lg text-slate-200 transition-colors"
+                  className="flex items-center gap-2 px-3 py-2 bg-brand-card hover:opacity-90 rounded-lg text-brand-text-main transition-colors border border-black/5"
                 >
                   <ArrowLeft size={18} />
                   <span className="hidden md:inline">Volver</span>
@@ -1081,7 +1084,7 @@ const App: React.FC = () => {
             ) : view === 'seller_select' ? (
                 <button 
                   onClick={() => setView('calculator')}
-                  className="flex items-center gap-2 px-3 py-2 bg-slate-800/50 hover:bg-slate-700 rounded-lg text-slate-200 transition-colors"
+                  className="flex items-center gap-2 px-3 py-2 bg-brand-card hover:opacity-90 rounded-lg text-brand-text-main transition-colors border border-black/5"
                 >
                   <ArrowLeft size={18} />
                   <span className="hidden md:inline">Volver</span>
@@ -1090,8 +1093,7 @@ const App: React.FC = () => {
                 /* Profile Button - Only visible in Calculator view */
                 <button 
                   onClick={handleProfileClick}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-slate-200 transition-colors border border-white/10 
-                    ${isCurrentAdmin ? 'bg-brand-card hover:bg-slate-700' : 'bg-brand-card hover:bg-slate-700'}`}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-brand-text-main transition-colors border border-black/10 bg-brand-card hover:opacity-90"
                 >
                   <UserIcon size={16} className={isCurrentAdmin ? 'text-brand-accent' : 'text-blue-400'} />
                   <span className="font-medium max-w-[100px] truncate">{user.name}</span>
@@ -1109,31 +1111,87 @@ const App: React.FC = () => {
                 </button>
 
                 {showThemeMenu && (
-                    <div className="absolute top-full right-0 mt-2 w-48 bg-brand-card border border-white/10 rounded-xl shadow-2xl p-2 z-50 animate-fade-in origin-top-right">
-                        <div className="text-xs font-bold text-slate-400 px-3 py-2 uppercase tracking-wider">Apariencia</div>
+                    <div className="absolute top-full right-0 mt-2 w-56 bg-brand-card border border-white/20 rounded-2xl shadow-2xl p-2 z-50 animate-fade-in origin-top-right">
+                        <div className="text-[11px] font-bold text-brand-text-muted px-3 py-2 uppercase tracking-wider">
+                          Apariencia y Colores
+                        </div>
                         
+                        {/* 1. Original Slate */}
                         <button 
-                            onClick={() => { setTheme('default'); setShowThemeMenu(false); }}
-                            className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-3 hover:bg-white/5 transition-colors ${theme === 'default' ? 'text-brand-accent bg-white/5' : 'text-slate-300'}`}
+                            type="button"
+                            onClick={() => { changeTheme('default'); setShowThemeMenu(false); }}
+                            className={`w-full text-left px-3 py-2.5 rounded-xl text-sm flex items-center justify-between hover:bg-white/10 transition-colors ${theme === 'default' ? 'text-brand-accent bg-white/10 font-bold' : 'text-slate-300'}`}
                         >
-                            <div className="w-4 h-4 rounded-full bg-[#10b981] shadow-sm"></div>
-                            <span>Original</span>
+                            <div className="flex items-center gap-3">
+                              <div className="w-5 h-5 rounded-full bg-[#10b981] ring-2 ring-[#0f172a] shadow-sm"></div>
+                              <span>Original (Slate)</span>
+                            </div>
+                            {theme === 'default' && <CheckCircle2 size={16} className="text-brand-accent" />}
                         </button>
 
+                        {/* 2. Claro Moderno (Fondo blanco / botones blancos) */}
                         <button 
-                            onClick={() => { setTheme('synthwave'); setShowThemeMenu(false); }}
-                            className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-3 hover:bg-white/5 transition-colors ${theme === 'synthwave' ? 'text-brand-accent bg-white/5' : 'text-slate-300'}`}
+                            type="button"
+                            onClick={() => { changeTheme('light-clean'); setShowThemeMenu(false); }}
+                            className={`w-full text-left px-3 py-2.5 rounded-xl text-sm flex items-center justify-between hover:bg-white/10 transition-colors ${theme === 'light-clean' ? 'text-brand-accent bg-white/10 font-bold' : 'text-slate-300'}`}
                         >
-                            <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[#ec4899] to-[#a855f7] shadow-sm"></div>
-                            <span>Synthwave</span>
+                            <div className="flex items-center gap-3">
+                              <div className="w-5 h-5 rounded-full bg-white border-2 border-emerald-500 shadow-sm"></div>
+                              <span>Blanco Puro (Light)</span>
+                            </div>
+                            {theme === 'light-clean' && <CheckCircle2 size={16} className="text-brand-accent" />}
                         </button>
 
-                         <button 
-                            onClick={() => { setTheme('retro'); setShowThemeMenu(false); }}
-                            className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-3 hover:bg-white/5 transition-colors ${theme === 'retro' ? 'text-brand-accent bg-white/5' : 'text-slate-300'}`}
+                        {/* 3. Nordic Frost (Teclado blanco contrastado) */}
+                        <button 
+                            type="button"
+                            onClick={() => { changeTheme('nordic-frost'); setShowThemeMenu(false); }}
+                            className={`w-full text-left px-3 py-2.5 rounded-xl text-sm flex items-center justify-between hover:bg-white/10 transition-colors ${theme === 'nordic-frost' ? 'text-brand-accent bg-white/10 font-bold' : 'text-slate-300'}`}
                         >
-                            <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[#458595] to-[#facc15] shadow-sm"></div>
-                            <span>Retro</span>
+                            <div className="flex items-center gap-3">
+                              <div className="w-5 h-5 rounded-full bg-gradient-to-br from-white to-sky-400 ring-2 ring-slate-400 shadow-sm"></div>
+                              <span>Nordic Frost (Cian)</span>
+                            </div>
+                            {theme === 'nordic-frost' && <CheckCircle2 size={16} className="text-brand-accent" />}
+                        </button>
+
+                        {/* 4. Synthwave Neon */}
+                        <button 
+                            type="button"
+                            onClick={() => { changeTheme('synthwave'); setShowThemeMenu(false); }}
+                            className={`w-full text-left px-3 py-2.5 rounded-xl text-sm flex items-center justify-between hover:bg-white/10 transition-colors ${theme === 'synthwave' ? 'text-brand-accent bg-white/10 font-bold' : 'text-slate-300'}`}
+                        >
+                            <div className="flex items-center gap-3">
+                              <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[#ec4899] to-[#a855f7] shadow-sm"></div>
+                              <span>Synthwave Neon</span>
+                            </div>
+                            {theme === 'synthwave' && <CheckCircle2 size={16} className="text-brand-accent" />}
+                        </button>
+
+                        {/* 5. Retro Vintage */}
+                        <button 
+                            type="button"
+                            onClick={() => { changeTheme('retro'); setShowThemeMenu(false); }}
+                            className={`w-full text-left px-3 py-2.5 rounded-xl text-sm flex items-center justify-between hover:bg-white/10 transition-colors ${theme === 'retro' ? 'text-brand-accent bg-white/10 font-bold' : 'text-slate-300'}`}
+                        >
+                            <div className="flex items-center gap-3">
+                              <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[#1e3a40] to-[#facc15] shadow-sm"></div>
+                              <span>Retro Vintage</span>
+                            </div>
+                            {theme === 'retro' && <CheckCircle2 size={16} className="text-brand-accent" />}
+                        </button>
+
+                        {/* 6. Midnight OLED */}
+                        <button 
+                            type="button"
+                            onClick={() => { changeTheme('midnight'); setShowThemeMenu(false); }}
+                            className={`w-full text-left px-3 py-2.5 rounded-xl text-sm flex items-center justify-between hover:bg-white/10 transition-colors ${theme === 'midnight' ? 'text-brand-accent bg-white/10 font-bold' : 'text-slate-300'}`}
+                        >
+                            <div className="flex items-center gap-3">
+                              <div className="w-5 h-5 rounded-full bg-black ring-2 ring-blue-500 shadow-sm"></div>
+                              <span>Midnight OLED</span>
+                            </div>
+                            {theme === 'midnight' && <CheckCircle2 size={16} className="text-brand-accent" />}
                         </button>
                     </div>
                 )}

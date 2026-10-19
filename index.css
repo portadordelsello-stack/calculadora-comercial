@@ -21,31 +21,100 @@
 
 /* 
   DEFINICIÓN DE TEMAS 
-  Los valores son RGB separados por espacio para que Tailwind pueda aplicar opacidad.
+  Valores RGB separados por espacio para que Tailwind aplique opacidades.
 */
 :root {
-  /* DEFAULT THEME (Emerald/Slate) */
-  --color-bg-dark: 15 23 42;    /* Slate 900 */
-  --color-bg-card: 30 41 59;    /* Slate 800 */
-  --color-accent: 16 185 129;   /* Emerald 500 */
-  --color-push: 99 102 241;     /* Indigo 500 */
-  --color-danger: 239 68 68;    /* Red 500 */
+  /* TEMA: ORIGINAL (Esmeralda / Dark Slate) */
+  --color-bg-dark: 15 23 42;      /* Slate 900 */
+  --color-bg-card: 30 41 59;      /* Slate 800 */
+  --color-accent: 16 185 129;     /* Emerald 500 */
+  --color-push: 99 102 241;       /* Indigo 500 */
+  --color-danger: 239 68 68;      /* Red 500 */
+  --color-btn-default: 30 41 59;  /* Slate 800 */
+  --color-btn-shadow: 2 6 23;     /* Slate 950 */
+  --color-btn-text: 255 255 255;
+  --color-display-bg: 15 23 42;
+  --color-display-text: 255 255 255;
+  --color-text-main: 255 255 255;
+  --color-text-muted: 148 163 184;
+}
+
+[data-theme='light-clean'] {
+  /* TEMA: CLARO MODERNO (Fondo blanco / gris perla con toques esmeralda) */
+  --color-bg-dark: 241 245 249;    /* Slate 100 */
+  --color-bg-card: 255 255 255;    /* White */
+  --color-accent: 16 185 129;     /* Emerald 500 */
+  --color-push: 79 70 229;        /* Indigo 600 */
+  --color-danger: 225 29 72;      /* Rose 600 */
+  --color-btn-default: 255 255 255;/* Botón Blanco */
+  --color-btn-shadow: 203 213 225;/* Sombra Slate 300 */
+  --color-btn-text: 15 23 42;     /* Texto oscuro */
+  --color-display-bg: 255 255 255;/* Display blanco */
+  --color-display-text: 15 23 42; /* Números oscuros */
+  --color-text-main: 15 23 42;    /* Texto principal negro/slate */
+  --color-text-muted: 100 116 139;/* Slate 500 */
+}
+
+[data-theme='nordic-frost'] {
+  /* TEMA: NORDIC FROST (Teclado blanco contrastado con pantalla celeste) */
+  --color-bg-dark: 226 232 240;    /* Slate 200 */
+  --color-bg-card: 248 250 252;    /* Slate 50 */
+  --color-accent: 14 165 233;     /* Sky 500 */
+  --color-push: 37 99 235;        /* Blue 600 */
+  --color-danger: 239 68 68;      /* Red 500 */
+  --color-btn-default: 255 255 255;/* Botones blancos */
+  --color-btn-shadow: 148 163 184;/* Sombra Slate 400 */
+  --color-btn-text: 30 41 59;     /* Texto slate oscuro */
+  --color-display-bg: 15 23 42;    /* Display oscuro de alto contraste */
+  --color-display-text: 56 189 248;/* Números cian brillantes */
+  --color-text-main: 15 23 42;
+  --color-text-muted: 71 85 105;
 }
 
 [data-theme='synthwave'] {
-  /* SYNTHWAVE THEME (Pink/Purple) */
-  --color-bg-dark: 36 0 70;     /* Deep Purple */
-  --color-bg-card: 60 9 108;    /* Violet */
-  --color-accent: 236 72 153;   /* Pink 500 */
-  --color-push: 168 85 247;     /* Purple 500 */
-  --color-danger: 220 38 38;    /* Red 600 */
+  /* TEMA: SYNTHWAVE NEON (Púrpura / Fucsia) */
+  --color-bg-dark: 24 9 46;       /* Deep Violet */
+  --color-bg-card: 45 15 84;      /* Violet Card */
+  --color-accent: 236 72 153;     /* Pink 500 */
+  --color-push: 168 85 247;       /* Purple 500 */
+  --color-danger: 239 68 68;      /* Red 500 */
+  --color-btn-default: 59 19 110; /* Dark Purple */
+  --color-btn-shadow: 17 4 33;
+  --color-btn-text: 255 255 255;
+  --color-display-bg: 17 4 33;
+  --color-display-text: 244 114 182;
+  --color-text-main: 255 255 255;
+  --color-text-muted: 192 132 252;
 }
 
 [data-theme='retro'] {
-  /* RETRO THEME (Teal/Pastel/Yellow) */
-  --color-bg-dark: 45 85 95;    /* Muted Teal */
-  --color-bg-card: 65 115 125;  /* Lighter Teal */
-  --color-accent: 250 204 21;   /* Yellow 400 (Contrast on Teal) */
-  --color-push: 251 146 60;     /* Orange 400 (Warmth) */
-  --color-danger: 248 113 113;  /* Red 400 */
+  /* TEMA: RETRO VINTAGE (Teal / Amarillo ámbar) */
+  --color-bg-dark: 30 58 64;      /* Deep Teal */
+  --color-bg-card: 45 85 95;      /* Teal Card */
+  --color-accent: 250 204 21;     /* Yellow 400 */
+  --color-push: 251 146 60;       /* Orange 400 */
+  --color-danger: 248 113 113;    /* Red 400 */
+  --color-btn-default: 52 98 109;
+  --color-btn-shadow: 20 40 44;
+  --color-btn-text: 255 255 255;
+  --color-display-bg: 20 40 44;
+  --color-display-text: 253 224 71;
+  --color-text-main: 255 255 255;
+  --color-text-muted: 153 205 214;
+}
+
+[data-theme='midnight'] {
+  /* TEMA: MIDNIGHT OLED (Negro absoluto con acento azul cobalto) */
+  --color-bg-dark: 0 0 0;          /* Black */
+  --color-bg-card: 18 18 18;      /* Dark Neutral */
+  --color-accent: 59 130 246;     /* Blue 500 */
+  --color-push: 99 102 241;       /* Indigo 500 */
+  --color-danger: 239 68 68;      /* Red 500 */
+  --color-btn-default: 28 28 30;  /* iOS Dark Key */
+  --color-btn-shadow: 10 10 10;
+  --color-btn-text: 255 255 255;
+  --color-display-bg: 10 10 10;
+  --color-display-text: 255 255 255;
+  --color-text-main: 255 255 255;
+  --color-text-muted: 156 163 175;
 }

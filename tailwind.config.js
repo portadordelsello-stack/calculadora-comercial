@@ -16,6 +16,13 @@ export default {
           accent: 'rgb(var(--color-accent) / <alpha-value>)', 
           push: 'rgb(var(--color-push) / <alpha-value>)',
           danger: 'rgb(var(--color-danger) / <alpha-value>)',
+          'btn-default': 'rgb(var(--color-btn-default) / <alpha-value>)',
+          'btn-shadow': 'rgb(var(--color-btn-shadow) / <alpha-value>)',
+          'btn-text': 'rgb(var(--color-btn-text) / <alpha-value>)',
+          'display-bg': 'rgb(var(--color-display-bg) / <alpha-value>)',
+          'display-text': 'rgb(var(--color-display-text) / <alpha-value>)',
+          'text-main': 'rgb(var(--color-text-main) / <alpha-value>)',
+          'text-muted': 'rgb(var(--color-text-muted) / <alpha-value>)',
         }
       },
       fontFamily: {

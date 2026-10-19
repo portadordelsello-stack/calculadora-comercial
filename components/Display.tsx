@@ -16,9 +16,9 @@ export const Display: React.FC<DisplayProps> = ({ value, previousValue, operator
   };
 
   return (
-    <div className="bg-slate-900 p-6 rounded-2xl shadow-inner border border-slate-700 relative overflow-hidden h-full flex flex-col justify-between">
+    <div className="bg-brand-display-bg p-6 rounded-2xl shadow-inner border border-white/10 relative overflow-hidden h-full flex flex-col justify-between transition-colors duration-200">
       {/* Operation History / Previous Value */}
-      <div className="text-slate-400 text-sm h-6 flex justify-end font-mono items-center z-10 relative">
+      <div className="text-brand-text-muted text-sm h-6 flex justify-end font-mono items-center z-10 relative">
         {previousValue && (
           <>
             <span>{formatNumber(previousValue)}</span>
@@ -29,12 +29,12 @@ export const Display: React.FC<DisplayProps> = ({ value, previousValue, operator
       
       {/* Main Display */}
       <div className="text-right z-10 relative">
-        <span className="text-5xl md:text-6xl font-bold tracking-tight text-white font-mono break-all">
+        <span className="text-5xl md:text-6xl font-bold tracking-tight text-brand-display-text font-mono break-all">
           {formatNumber(value) || '0'}
         </span>
       </div>
       
-      <div className="absolute top-0 left-0 w-1 h-full bg-brand-accent opacity-50"></div>
+      <div className="absolute top-0 left-0 w-1.5 h-full bg-brand-accent opacity-80"></div>
     </div>
   );
 };
