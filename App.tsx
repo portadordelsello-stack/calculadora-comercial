@@ -361,10 +361,21 @@ const App: React.FC = () => {
     const virtualEmail = buildVirtualEmail(cleanUsername, cleanBizCode);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      let { error } = await supabase.auth.signInWithPassword({
         email: virtualEmail,
         password: passwordInput,
       });
+
+      // Si falló y es superadmin, intentar también con @devtech.com.ar
+      if (error && cleanUsername === 'superadmin') {
+        const fallbackRes = await supabase.auth.signInWithPassword({
+          email: 'superadmin@devtech.com.ar',
+          password: passwordInput,
+        });
+        if (!fallbackRes.error) {
+          error = null;
+        }
+      }
 
       if (error) throw error;
 
