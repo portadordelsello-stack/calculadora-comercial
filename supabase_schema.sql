@@ -29,7 +29,25 @@ CREATE TABLE IF NOT EXISTS public.sales (
 CREATE INDEX IF NOT EXISTS idx_sales_timestamp ON public.sales(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_sales_user_id ON public.sales(user_id);
 
--- 3. FUNCIÓN Y TRIGGER: CREAR PERFIL AUTOMÁTICAMENTE AL REGISTRAR USUARIO
+-- 3. FUNCIÓN Y TRIGGER: CREAR PERFIL Y CONFIRMAR AUTOMÁTICAMENTE
+CREATE OR REPLACE FUNCTION public.auto_confirm_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.email_confirmed_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_auto_confirm ON auth.users;
+CREATE TRIGGER on_auth_user_auto_confirm
+  BEFORE INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.auto_confirm_user();
+
+-- Confirmar usuarios ya creados que estén pendientes:
+UPDATE auth.users
+SET email_confirmed_at = now()
+WHERE email_confirmed_at IS NULL;
+
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
