@@ -124,6 +124,26 @@ RETURNS UUID AS $$
   SELECT business_id FROM public.profiles WHERE id = auth.uid();
 $$ LANGUAGE sql SECURITY DEFINER SET search_path = public STABLE;
 
+-- Función para que el Superadmin elimine un comercio y todos sus usuarios asociados en auth.users
+CREATE OR REPLACE FUNCTION public.delete_business(p_business_id UUID)
+RETURNS VOID AS $$
+BEGIN
+  -- Verificar que quien llama es superadmin
+  IF NOT public.is_superadmin() THEN
+    RAISE EXCEPTION 'Solo el superadministrador puede eliminar comercios.';
+  END IF;
+
+  -- 1. Eliminar usuarios de auth.users asociados a este comercio
+  DELETE FROM auth.users 
+  WHERE id IN (
+    SELECT id FROM public.profiles WHERE business_id = p_business_id
+  );
+
+  -- 2. Eliminar el comercio (las tablas sales, customers y profiles tienen ON DELETE CASCADE)
+  DELETE FROM public.businesses WHERE id = p_business_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 -- ==============================================================================
 -- 6. HABILITAR ROW LEVEL SECURITY (RLS)
 -- ==============================================================================
